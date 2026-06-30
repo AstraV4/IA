@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="fr"><head>
+<meta charset="UTF-8" /><meta name="viewport" content="width=device-width,initial-scale=1.0" />
+<title>Chat · <%= siteName %></title>
+<link rel="stylesheet" href="/static/css/style.css" />
+</head><body>
+<nav class="nav">
+  <a class="brand" href="/"><span class="m"></span><%= siteName %></a>
+  <div class="links">
+    <a href="/account">Mon compte</a>
+    <button class="btn" id="clear" style="padding:9px 14px">Effacer</button>
+    <form method="POST" action="/logout" style="display:inline"><button class="btn" type="submit" style="padding:9px 14px">Déconnexion</button></form>
+  </div>
+</nav>
+
+<div class="chat-wrap">
+  <div class="quota">
+    <span>Messages ce mois : <b id="used"><%= used %></b> / <%= limit %></span>
+    <% if (me.plan !== 'pro') { %><a href="/account">Passer au Pro pour plus →</a><% } else { %><span class="tag pro">PRO</span><% } %>
+  </div>
+
+  <div class="messages" id="messages">
+    <% if (!history.length) { %>
+      <div class="empty" id="empty">👋 Pose ta première question à <%= siteName %> !</div>
+    <% } %>
+    <% history.forEach(function(m){ %>
+      <div class="msg <%= m.role === 'user' ? 'user' : 'ai' %>"><%= m.content %></div>
+    <% }) %>
+  </div>
+
+  <div class="composer">
+    <textarea id="input" placeholder="Écris ton message…" rows="1"></textarea>
+    <button id="send" title="Envoyer">➤</button>
+  </div>
+</div>
+
+<script>window.LIMIT = <%= limit %>;</script>
+<script src="/static/js/chat.js"></script>
+</body></html>

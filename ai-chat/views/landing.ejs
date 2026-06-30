@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="fr"><head>
+<meta charset="UTF-8" /><meta name="viewport" content="width=device-width,initial-scale=1.0" />
+<title><%= siteName %></title>
+<link rel="stylesheet" href="/static/css/style.css" />
+</head><body>
+<nav class="nav">
+  <a class="brand" href="/"><span class="m"></span><%= siteName %></a>
+  <div class="links">
+    <% if (me) { %>
+      <a href="/chat">Chat</a><a href="/account">Mon compte</a>
+      <form method="POST" action="/logout" style="display:inline"><button class="btn" type="submit" style="padding:9px 14px">Déconnexion</button></form>
+    <% } else { %>
+      <a href="/login">Connexion</a><a class="pill" href="/register">Commencer</a>
+    <% } %>
+  </div>
+</nav>
+
+<section class="hero">
+  <h1>Discute avec une <span class="g">IA</span>, simplement.</h1>
+  <p>Pose tes questions, demande de l'aide, discute de tout. <%= siteName %> te répond en quelques secondes. Commence gratuitement, passe au Pro quand tu veux plus.</p>
+  <div class="cta">
+    <% if (me) { %><a class="btn-primary btn" href="/chat">Ouvrir le chat →</a>
+    <% } else { %><a class="btn-primary btn" href="/register">Créer un compte gratuit</a><a class="btn" href="/login">J'ai déjà un compte</a><% } %>
+  </div>
+</section>
+
+<section class="plans">
+  <div class="plan">
+    <h3>Gratuit</h3>
+    <div class="price">0 €</div>
+    <ul>
+      <li><b><%= freeLimit %></b> messages / mois</li>
+      <li>Réponses de l'IA</li>
+      <li>Historique de conversation</li>
+    </ul>
+    <a class="btn" href="/register" style="width:100%;text-align:center">Commencer</a>
+  </div>
+  <div class="plan pro">
+    <h3>Pro</h3>
+    <div class="price"><%= proLabel %></div>
+    <ul>
+      <li><b><%= proLimit %></b> messages / mois</li>
+      <li>Réponses prioritaires</li>
+      <li>Tout le gratuit inclus</li>
+    </ul>
+    <% if (me) { %>
+      <a class="btn-primary btn" href="/account" style="width:100%;text-align:center">Passer au Pro</a>
+    <% } else { %>
+      <a class="btn-primary btn" href="/register" style="width:100%;text-align:center">Choisir Pro</a>
+    <% } %>
+  </div>
+</section>
+</body></html>

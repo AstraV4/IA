@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="fr"><head>
+<meta charset="UTF-8" /><meta name="viewport" content="width=device-width,initial-scale=1.0" />
+<title>Mon compte · <%= siteName %></title>
+<link rel="stylesheet" href="/static/css/style.css" />
+</head><body>
+<nav class="nav">
+  <a class="brand" href="/"><span class="m"></span><%= siteName %></a>
+  <div class="links">
+    <a href="/chat">Chat</a>
+    <form method="POST" action="/logout" style="display:inline"><button class="btn" type="submit" style="padding:9px 14px">Déconnexion</button></form>
+  </div>
+</nav>
+
+<div class="card">
+  <h2>Mon compte</h2>
+  <p style="color:var(--dim);margin:6px 0 18px"><%= me.email %></p>
+
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+    <strong>Forfait :</strong>
+    <span class="tag <%= plan === 'pro' ? 'pro' : '' %>"><%= plan === 'pro' ? 'PRO' : 'GRATUIT' %></span>
+  </div>
+
+  <div style="margin-top:18px">
+    <strong>Messages ce mois</strong>
+    <div class="bar"><i style="width:<%= Math.min(100, Math.round(used/limit*100)) %>%"></i></div>
+    <div style="color:var(--dim);font-size:.9rem"><%= used %> / <%= limit %> messages utilisés</div>
+  </div>
+
+  <% if (plan !== 'pro') { %>
+    <div style="margin-top:26px;padding-top:22px;border-top:1px solid var(--border)">
+      <h3 style="margin-bottom:6px">Passer au Pro</h3>
+      <p style="color:var(--dim);font-size:.92rem;margin-bottom:14px"><b><%= proLimit %></b> messages / mois pour <b><%= proLabel %></b>.</p>
+      <% if (stripeEnabled) { %>
+        <form method="POST" action="/billing/checkout"><button class="btn-primary btn" type="submit">Passer au Pro — <%= proLabel %></button></form>
+      <% } else { %>
+        <div class="error">Le paiement n'est pas encore configuré par l'administrateur (clés Stripe manquantes).</div>
+      <% } %>
+    </div>
+  <% } else { %>
+    <p style="margin-top:26px;color:var(--dim)">Merci d'être Pro ! 💜 Tu profites de <%= proLimit %> messages par mois.</p>
+  <% } %>
+</div>
+</body></html>

@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="fr"><head>
+<meta charset="UTF-8" /><meta name="viewport" content="width=device-width,initial-scale=1.0" />
+<title>Inscription · <%= siteName %></title>
+<link rel="stylesheet" href="/static/css/style.css" />
+</head><body>
+<nav class="nav"><a class="brand" href="/"><span class="m"></span><%= siteName %></a></nav>
+<div class="auth">
+  <h2>Créer un compte</h2>
+  <% if (error) { %><div class="error"><%= error %></div><% } %>
+  <form method="POST" action="/register">
+    <label>E-mail</label>
+    <input type="email" name="email" value="<%= email %>" required />
+    <label>Mot de passe</label>
+    <input type="password" name="password" minlength="6" required />
+    <button class="btn-primary" type="submit">Créer mon compte</button>
+  </form>
+  <div class="alt">Déjà un compte ? <a href="/login">Se connecter</a></div>
+</div>
+</body></html>

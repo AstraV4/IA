@@ -171,3 +171,37 @@ input{font-size:16px}
   table{font-size:.82rem}
   th,td{padding:9px 8px}
 }
+
+/* ===== Logo (spark) ===== */
+.brand .m,.logo .m{position:relative}
+.brand .m::after,.logo .m::after{content:"";position:absolute;inset:0;background:url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2024%2024'%3E%3Cpolygon%20points='12,2%2014.3,9.7%2022,12%2014.3,14.3%2012,22%209.7,14.3%202,12%209.7,9.7'%20fill='white'/%3E%3C/svg%3E") center/62% no-repeat}
+
+/* ===== Thème sombre ===== */
+html[data-theme="dark"]{--bg:#1c1a17;--panel:#26231e;--panel2:#2b2721;--sidebar:#161410;--sidebar-hover:#221f1a;--card:#26231e;--border:#37322b;--text:#f0ebe3;--dim:#a39b8d;--userbub:#2f2b24;--glow:rgba(224,138,82,.22)}
+html[data-theme="dark"] .conv{color:#c7bfb2}
+html[data-theme="dark"] .tool{color:#b8b0a3}
+
+/* ===== Recherche conversations ===== */
+.conv-search{width:100%;background:var(--panel);border:1px solid var(--border);border-radius:9px;padding:9px 11px;font-size:.85rem;color:var(--text);font-family:inherit;margin-bottom:4px}
+.conv-search:focus{outline:none;border-color:var(--accent)}
+
+/* ===== Suggestions (écran d'accueil) ===== */
+.suggests{display:flex;flex-wrap:wrap;gap:9px;justify-content:center;max-width:460px;margin:20px auto 0}
+.sug{background:var(--panel);border:1px solid var(--border);color:var(--text);border-radius:12px;padding:10px 14px;font-size:.86rem;cursor:pointer;font-family:inherit}
+.sug:hover{border-color:var(--accent);color:var(--accent)}
+
+/* ===== Fenêtre modale (pro) ===== */
+.modal-overlay{position:fixed;inset:0;background:rgba(20,15,10,.45);display:flex;align-items:center;justify-content:center;z-index:100;padding:20px;animation:mfade .15s ease}
+@keyframes mfade{from{opacity:0}to{opacity:1}}
+.modal{background:var(--panel);border:1px solid var(--border);border-radius:18px;padding:24px;max-width:400px;width:100%;box-shadow:0 24px 60px rgba(0,0,0,.28);animation:mpop .18s ease}
+@keyframes mpop{from{transform:translateY(8px) scale(.98);opacity:.6}to{transform:none;opacity:1}}
+.modal h3{font-size:1.15rem;margin-bottom:12px}
+.modal-msg{color:var(--dim);font-size:.92rem;margin-bottom:16px;line-height:1.55}
+.modal-input{width:100%;background:var(--panel2);border:1px solid var(--border);color:var(--text);border-radius:10px;padding:11px 13px;font-family:inherit;font-size:16px;margin-bottom:18px}
+.modal-input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--glow)}
+.modal-actions{display:flex;gap:10px;justify-content:flex-end}
+
+/* ===== Bouton de téléchargement (fichiers générés) ===== */
+.dl-btn{display:inline-block;margin-top:12px;margin-right:8px;background:linear-gradient(135deg,var(--accent),var(--accent2));color:var(--on-accent);border:none;border-radius:10px;padding:9px 15px;font-size:.85rem;font-weight:600;text-decoration:none;cursor:pointer}
+.dl-btn:hover{opacity:.92}
+select.modal-input{cursor:pointer}

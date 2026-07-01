@@ -11,6 +11,25 @@ const convList = $('conv-list');
 
 let pendingFile = null;
 
+/* ---------- Thème clair / sombre ---------- */
+const themeBtn = document.getElementById('theme-toggle');
+function applyTheme(t){
+  if(t==='dark'){ document.documentElement.setAttribute('data-theme','dark'); if(themeBtn) themeBtn.textContent='☀️ Thème clair'; }
+  else { document.documentElement.removeAttribute('data-theme'); if(themeBtn) themeBtn.textContent='🌙 Thème sombre'; }
+}
+try{ applyTheme(localStorage.getItem('theme')||'light'); }catch(e){}
+if(themeBtn) themeBtn.addEventListener('click', ()=>{ const dark=document.documentElement.getAttribute('data-theme')!=='dark'; try{localStorage.setItem('theme',dark?'dark':'light');}catch(e){} applyTheme(dark?'dark':'light'); });
+
+/* ---------- Recherche de conversations ---------- */
+const searchInput = document.getElementById('conv-search');
+if(searchInput) searchInput.addEventListener('input', ()=>{
+  const q=searchInput.value.toLowerCase();
+  document.querySelectorAll('#conv-list .conv').forEach(c=>{ const t=(c.querySelector('.conv-t')||{}).textContent||''; c.style.display=t.toLowerCase().includes(q)?'':'none'; });
+});
+
+/* ---------- Suggestions (chips) ---------- */
+const EMPTY_HTML = '<div class="empty" id="empty"><div class="empty-icon">✦</div><h3>Nouvelle conversation</h3><p>Pose ta question, ou joins un fichier.</p><div class="suggests"><button class="sug" data-text="Corrige l\'orthographe et la grammaire de ce texte : ">✍️ Corriger un texte</button><button class="sug" data-text="Explique-moi simplement : ">💡 Expliquer un concept</button><button class="sug" data-text="Résume-moi ce document : ">📄 Résumer un document</button><button class="sug" data-text="Aide-moi à coder : ">💻 Aider à coder</button></div></div>';
+
 /* ---------- Markdown -> HTML (sûr : on échappe d'abord) ---------- */
 function escapeHtml(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function inlineMd(t){
@@ -66,10 +85,40 @@ function closeSide(){ side.classList.remove('open'); overlay.classList.remove('s
 /* ---------- Nouvelle conversation ---------- */
 $('new-conv').addEventListener('click', () => {
   window.CURRENT = null;
-  thread.innerHTML = '<div class="empty" id="empty"><div class="empty-icon">✦</div><h3>Nouvelle conversation</h3><p>Pose ta question, ou joins un fichier.</p></div>';
+  thread.innerHTML = EMPTY_HTML;
   document.querySelectorAll('.conv.active').forEach(c => c.classList.remove('active'));
   clearFile(); closeSide(); input.focus();
 });
+
+/* Clic sur une suggestion -> remplit le champ */
+thread.addEventListener('click', (e) => {
+  const s = e.target.closest('.sug');
+  if (!s) return;
+  input.value = s.getAttribute('data-text') || '';
+  input.focus();
+  input.dispatchEvent(new Event('input'));
+});
+
+/* ---------- Fenêtre modale ---------- */
+const modal = $('modal'), mTitle=$('modal-title'), mMsg=$('modal-msg'), mInput=$('modal-input'), mOk=$('modal-ok'), mCancel=$('modal-cancel');
+function openModal(opts){
+  return new Promise(resolve=>{
+    const hasInput = opts.value !== undefined;
+    mTitle.textContent = opts.title || '';
+    if(opts.message){ mMsg.textContent=opts.message; mMsg.hidden=false; } else mMsg.hidden=true;
+    if(hasInput){ mInput.hidden=false; mInput.value=opts.value||''; } else mInput.hidden=true;
+    mOk.textContent = opts.okLabel || 'OK';
+    mOk.className = opts.danger ? 'btn btn-danger' : 'btn-primary btn';
+    modal.hidden=false;
+    if(hasInput) setTimeout(()=>{ mInput.focus(); mInput.select(); },30);
+    function done(val){ modal.hidden=true; mOk.removeEventListener('click',ok); mCancel.removeEventListener('click',cancel); document.removeEventListener('keydown',key); modal.removeEventListener('click',overlay); resolve(val); }
+    function ok(){ done(hasInput ? mInput.value.trim() : true); }
+    function cancel(){ done(hasInput ? null : false); }
+    function key(e){ if(e.key==='Escape') cancel(); else if(e.key==='Enter' && hasInput){ e.preventDefault(); ok(); } }
+    function overlay(e){ if(e.target===modal) cancel(); }
+    mOk.addEventListener('click',ok); mCancel.addEventListener('click',cancel); document.addEventListener('keydown',key); modal.addEventListener('click',overlay);
+  });
+}
 
 /* ---------- Renommer / Supprimer ---------- */
 convList.addEventListener('click', async (e) => {
@@ -79,17 +128,18 @@ convList.addEventListener('click', async (e) => {
     e.preventDefault(); e.stopPropagation();
     const id = edit.getAttribute('data-edit');
     const row = edit.closest('.conv');
-    const title = prompt('Nouveau titre :', row.querySelector('.conv-t').textContent);
-    if (title && title.trim()) {
-      const r = await fetch('/api/conversations/' + id + '/rename', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ title: title.trim() }) });
+    const title = await openModal({ title:'Renommer la conversation', value: row.querySelector('.conv-t').textContent, okLabel:'Enregistrer' });
+    if (title) {
+      const r = await fetch('/api/conversations/' + id + '/rename', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ title }) });
       const d = await r.json();
-      row.querySelector('.conv-t').textContent = d.title || title.trim();
+      row.querySelector('.conv-t').textContent = d.title || title;
     }
     return;
   }
   if (del) {
     e.preventDefault(); e.stopPropagation();
-    if (!confirm('Supprimer cette conversation ?')) return;
+    const ok = await openModal({ title:'Supprimer la conversation ?', message:'Cette action est définitive.', okLabel:'Supprimer', danger:true });
+    if (!ok) return;
     const id = del.getAttribute('data-del');
     await fetch('/api/conversations/' + id + '/delete', { method:'POST' });
     if (String(window.CURRENT) === String(id)) { window.location = '/chat'; return; }
@@ -181,3 +231,42 @@ send.addEventListener('click', sendMessage);
 input.addEventListener('keydown', (e)=>{ if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); sendMessage(); } });
 
 thread.scrollTop=thread.scrollHeight;
+
+/* ---------- PowerPoint ---------- */
+const pptxModal = $('pptx-modal');
+$('pptx-btn').addEventListener('click', () => { pptxModal.hidden = false; setTimeout(() => $('pptx-topic').focus(), 30); });
+$('pptx-cancel').addEventListener('click', () => { pptxModal.hidden = true; });
+pptxModal.addEventListener('click', (e) => { if (e.target === pptxModal) pptxModal.hidden = true; });
+$('pptx-go').addEventListener('click', async () => {
+  const topic = $('pptx-topic').value.trim(); if (!topic) return;
+  const slides = $('pptx-count').value;
+  pptxModal.hidden = true; $('pptx-topic').value = '';
+  addUser('📊 PowerPoint : ' + topic, null);
+  const typing = addTyping();
+  try {
+    const r = await fetch('/api/generate/pptx', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ topic, slides }) });
+    const data = await r.json(); typing.remove();
+    if (r.status === 402) { addAI("🔒 " + (data.message || "Limite atteinte.")); }
+    else if (!r.ok) { addAI("⚠️ " + (data.message || "La génération a échoué.")); }
+    else {
+      const body = addAI("✅ Ta présentation **" + (data.title || topic) + "** est prête !");
+      const a = document.createElement('a'); a.href = data.url; a.className = 'dl-btn'; a.textContent = '📊 Télécharger le PowerPoint';
+      const copy = body.querySelector('.copy-btn'); if (copy) body.insertBefore(a, copy); else body.appendChild(a);
+      if (typeof data.used === 'number') { $('used').textContent = data.used; const f = $('quota-fill'); if (f) f.style.width = Math.min(100, Math.round(data.used / window.LIMIT * 100)) + '%'; }
+    }
+  } catch (e) { typing.remove(); addAI("⚠️ Erreur pendant la génération."); }
+});
+
+/* ---------- Export de la conversation ---------- */
+$('export-btn').addEventListener('click', () => {
+  const turns = [...thread.querySelectorAll('.turn')];
+  if (!turns.length) { alert('Rien à exporter pour le moment.'); return; }
+  let md = '# Conversation\n\n';
+  turns.forEach(t => {
+    if (t.classList.contains('user')) { md += '**Moi :**\n\n' + (t.querySelector('.bubble') ? t.querySelector('.bubble').innerText.trim() : '') + '\n\n'; }
+    else { const b = t.querySelector('.body'); let txt = ''; if (b) { const c = b.cloneNode(true); c.querySelectorAll('.copy-btn,.dl-btn').forEach(x => x.remove()); txt = c.innerText.trim(); } md += '**IA :**\n\n' + txt + '\n\n'; }
+  });
+  const blob = new Blob([md], { type: 'text/markdown' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'conversation.md';
+  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(a.href);
+});

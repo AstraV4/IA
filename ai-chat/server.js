@@ -3,8 +3,12 @@ const session = require('express-session');
 const SQLiteStore = require('connect-sqlite3')(session);
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
+const fs = require('fs');
 const path = require('path');
 const { db, DATA_DIR } = require('./db');
+
+const GEN_DIR = path.join(DATA_DIR, 'generated');
+fs.mkdirSync(GEN_DIR, { recursive: true });
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -274,6 +278,69 @@ app.post('/api/chat', requireAuth, async (req, res) => {
     console.error(e);
     res.status(502).json({ error: 'ai', message: "Erreur de connexion à l'IA." });
   }
+});
+
+// ===================== GÉNÉRATION POWERPOINT =====================
+app.post('/api/generate/pptx', requireAuth, async (req, res) => {
+  const u = res.locals.me;
+  ensurePeriod(u);
+  const limit = limitFor(u.plan);
+  if (u.msg_used >= limit) return res.status(402).json({ error: 'quota', message: "Limite de messages atteinte ce mois-ci." });
+  if (!ANTHROPIC_API_KEY) return res.status(500).json({ error: 'config', message: "L'IA n'est pas configurée." });
+
+  const topic = (req.body.topic || '').toString().slice(0, 500).trim();
+  const slides = Math.min(20, Math.max(3, parseInt(req.body.slides, 10) || 8));
+  if (!topic) return res.status(400).json({ error: 'empty' });
+
+  try {
+    // 1) Demander le contenu à l'IA en JSON
+    const sys = 'Tu génères le contenu d\'une présentation. Réponds UNIQUEMENT avec du JSON valide, sans texte ni balises autour, au format exact : {"title": "...", "slides": [{"title": "...", "bullets": ["...", "..."]}]}. 3 à 6 puces courtes par slide.';
+    const r = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'x-api-key': ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+      body: JSON.stringify({ model: MODEL, max_tokens: 2500, system: sys, messages: [{ role: 'user', content: `Sujet : ${topic}. Fais environ ${slides} slides de contenu, en français.` }] })
+    });
+    if (!r.ok) { console.error('pptx ai', r.status, await r.text()); return res.status(502).json({ error: 'ai', message: "L'IA n'a pas pu générer la présentation." }); }
+    const data = await r.json();
+    let txt = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n').trim();
+    txt = txt.replace(/^```json\s*/i, '').replace(/^```\s*/, '').replace(/```$/, '').trim();
+    let spec;
+    try { spec = JSON.parse(txt); } catch (e) { console.error('pptx parse', txt.slice(0, 200)); return res.status(502).json({ error: 'parse', message: "Réponse de l'IA illisible, réessaie." }); }
+    if (!spec || !Array.isArray(spec.slides)) return res.status(502).json({ error: 'parse', message: "Format de présentation invalide." });
+
+    // 2) Construire le .pptx
+    const pptxgen = require('pptxgenjs');
+    const pres = new pptxgen();
+    pres.layout = 'LAYOUT_WIDE';
+    const title = (spec.title || topic).toString();
+    let s = pres.addSlide(); s.background = { color: 'FAF7F2' };
+    s.addText(title, { x: 0.6, y: 2.2, w: 12.1, h: 1.6, fontSize: 40, bold: true, color: 'C15F3C', align: 'center' });
+    s.addText('Généré par ' + SITE_NAME, { x: 0.6, y: 3.8, w: 12.1, h: 0.5, fontSize: 14, color: '999999', align: 'center' });
+    spec.slides.forEach(sl => {
+      const c = pres.addSlide(); c.background = { color: 'FFFFFF' };
+      c.addText((sl.title || '').toString(), { x: 0.6, y: 0.4, w: 12.1, h: 1, fontSize: 28, bold: true, color: 'C15F3C' });
+      const bullets = (Array.isArray(sl.bullets) ? sl.bullets : []).map(b => ({ text: String(b), options: { bullet: true, fontSize: 18, color: '333333', paraSpaceAfter: 10 } }));
+      if (bullets.length) c.addText(bullets, { x: 0.9, y: 1.7, w: 11.5, h: 5, valign: 'top' });
+    });
+
+    const token = crypto.randomBytes(6).toString('hex');
+    const fileName = 'presentation-' + token + '.pptx';
+    await pres.writeFile({ fileName: path.join(GEN_DIR, fileName) });
+
+    db.prepare('UPDATE users SET msg_used = msg_used + 1 WHERE id = ?').run(u.id);
+    res.json({ url: '/download/' + fileName, title, used: u.msg_used + 1, limit });
+  } catch (e) {
+    console.error('PPTX ERROR', e);
+    res.status(500).json({ error: 'server', message: "Erreur pendant la génération (la librairie PowerPoint est-elle installée ?)." });
+  }
+});
+
+app.get('/download/:name', requireAuth, (req, res) => {
+  const name = req.params.name;
+  if (!/^[\w.-]+\.(pptx|docx|pdf)$/.test(name)) return res.status(400).end();
+  const fp = path.join(GEN_DIR, name);
+  if (!fs.existsSync(fp)) return res.status(404).end();
+  res.download(fp);
 });
 
 // ===================== ADMIN (gérer le Pro à la main) =====================

@@ -3,6 +3,7 @@
 <meta charset="UTF-8" /><meta name="viewport" content="width=device-width,initial-scale=1.0" />
 <title>Chat · <%= siteName %></title>
 <link rel="stylesheet" href="/static/css/style.css" />
+<script>try{if(localStorage.getItem('theme')==='dark')document.documentElement.setAttribute('data-theme','dark');}catch(e){}</script>
 </head><body class="chat-body">
 <div class="app">
   <div class="side-overlay" id="side-overlay"></div>
@@ -11,6 +12,7 @@
       <a class="logo" href="/"><span class="m"></span><%= siteName %></a>
     </div>
     <button class="new" id="new-conv"><span class="plus">＋</span> Nouvelle conversation</button>
+    <input class="conv-search" id="conv-search" placeholder="🔎 Rechercher…" />
     <div class="lbl">Récents</div>
     <div class="conv-list" id="conv-list">
       <% conversations.forEach(function(c){ %>
@@ -24,6 +26,8 @@
       <% }) %>
     </div>
     <div class="side-foot">
+      <button class="side-link" type="button" id="theme-toggle">🌙 Thème sombre</button>
+      <button class="side-link" type="button" id="export-btn">⬇️ Exporter la conversation</button>
       <% if (isAdmin) { %><a class="side-link" href="/admin">🛠️ Espace admin</a><% } %>
       <div class="quota-mini">
         <% if (me.plan === 'pro') { %><span class="tag pro">PRO</span><% } else { %><span class="tag">GRATUIT</span><% } %>
@@ -47,6 +51,12 @@
           <div class="empty-icon">✦</div>
           <h3>Bonjour !</h3>
           <p>Pose ta question, ou joins un fichier (image, PDF, texte…) pour que je t'aide.</p>
+          <div class="suggests">
+            <button class="sug" data-text="Corrige l'orthographe et la grammaire de ce texte : ">✍️ Corriger un texte</button>
+            <button class="sug" data-text="Explique-moi simplement : ">💡 Expliquer un concept</button>
+            <button class="sug" data-text="Résume-moi ce document : ">📄 Résumer un document</button>
+            <button class="sug" data-text="Aide-moi à coder : ">💻 Aider à coder</button>
+          </div>
         </div>
       <% } %>
       <% history.forEach(function(m){ %>
@@ -70,6 +80,7 @@
           <div class="c-left">
             <input type="file" id="file" hidden />
             <button class="tool" id="attach" title="Joindre un fichier">📎</button>
+            <button class="tool" id="pptx-btn" title="Générer un PowerPoint">📊</button>
           </div>
           <button class="send" id="send" title="Envoyer">➤</button>
         </div>
@@ -77,6 +88,36 @@
       <div class="hint"><%= siteName %> peut faire des erreurs. Vérifie les informations importantes.</div>
     </div>
   </main>
+</div>
+
+<div class="modal-overlay" id="modal" hidden>
+  <div class="modal">
+    <h3 id="modal-title"></h3>
+    <p id="modal-msg" class="modal-msg" hidden></p>
+    <input id="modal-input" class="modal-input" hidden />
+    <div class="modal-actions">
+      <button class="btn" type="button" id="modal-cancel">Annuler</button>
+      <button class="btn-primary btn" type="button" id="modal-ok">OK</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="pptx-modal" hidden>
+  <div class="modal">
+    <h3>📊 Générer un PowerPoint</h3>
+    <p class="modal-msg">Décris le sujet, l'IA crée les slides et te donne le fichier.</p>
+    <input id="pptx-topic" class="modal-input" placeholder="Ex : La Révolution française" />
+    <label style="font-size:.82rem;color:var(--dim);display:block;margin:-8px 0 6px">Nombre de slides</label>
+    <select id="pptx-count" class="modal-input">
+      <option value="5">5 slides</option>
+      <option value="8" selected>8 slides</option>
+      <option value="12">12 slides</option>
+    </select>
+    <div class="modal-actions">
+      <button class="btn" type="button" id="pptx-cancel">Annuler</button>
+      <button class="btn-primary btn" type="button" id="pptx-go">Générer</button>
+    </div>
+  </div>
 </div>
 
 <script>window.LIMIT = <%= limit %>; window.CURRENT = <%= currentId || 'null' %>;</script>

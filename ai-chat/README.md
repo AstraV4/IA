@@ -56,3 +56,11 @@ depuis un **panneau admin**.
   connecté avec le compte dont l'e-mail == la variable `ADMIN_EMAIL`.
 - Donc : mets `ADMIN_EMAIL` = l'e-mail EXACT de ton compte, crée/connecte ce
   compte, et le lien "🛠️ Espace admin" s'affiche (en bas de la barre de gauche).
+
+## PowerPoint & fichiers générés
+- Bouton 📊 dans la barre de saisie : l'IA rédige les slides et le serveur
+  fabrique un vrai fichier .pptx téléchargeable (librairie pptxgenjs, installée
+  automatiquement par `npm install`).
+- Les fichiers générés sont stockés dans DATA_DIR/generated (garde un Volume /data).
+- Générer une présentation compte comme 1 message dans le quota.
+- Bouton "⬇️ Exporter la conversation" : télécharge la discussion en .md.

@@ -29,7 +29,8 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 app.use('/static', express.static(path.join(__dirname, 'public')));
 app.use(session({
-  store: new SQLiteStore({ db: 'sessions.db', dir: DATA_DIR }),
+  name: 'aichat.sid',
+  store: new SQLiteStore({ db: 'sessions_ai.db', dir: DATA_DIR }),
   secret: process.env.SESSION_SECRET || 'change-me',
   resave: false,
   saveUninitialized: false,
@@ -58,6 +59,9 @@ app.use((req, res, next) => {
 
 function requireAuth(req, res, next) {
   if (!req.session.userId) return res.redirect('/login');
+  if (!res.locals.me) { // session périmée (ex: vieux cookie) -> on nettoie
+    return req.session.destroy(() => res.redirect('/login'));
+  }
   next();
 }
 function requireAdmin(req, res, next) {
@@ -68,6 +72,7 @@ function requireAdmin(req, res, next) {
 // ----- Quota -----
 const MONTH = 30 * 24 * 3600 * 1000;
 function ensurePeriod(u) {
+  if (!u) return;
   const now = Date.now();
   if (!u.period_start || now - u.period_start >= MONTH) {
     db.prepare('UPDATE users SET msg_used = 0, period_start = ? WHERE id = ?').run(now, u.id);

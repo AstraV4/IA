@@ -147,6 +147,12 @@ app.get('/api/conversations/:id/messages', requireAuth, (req, res) => {
   if (!c) return res.status(404).json({ error: 'notfound' });
   res.json(db.prepare('SELECT role, content FROM messages WHERE conversation_id = ? ORDER BY id ASC LIMIT 500').all(c.id));
 });
+app.post('/api/conversations/:id/rename', requireAuth, (req, res) => {
+  const title = (req.body.title || '').toString().trim().slice(0, 60) || 'Conversation';
+  const c = db.prepare('SELECT id FROM conversations WHERE id = ? AND user_id = ?').get(req.params.id, req.session.userId);
+  if (c) db.prepare('UPDATE conversations SET title = ? WHERE id = ?').run(title, c.id);
+  res.json({ ok: true, title });
+});
 app.post('/api/conversations/:id/delete', requireAuth, (req, res) => {
   const c = db.prepare('SELECT id FROM conversations WHERE id = ? AND user_id = ?').get(req.params.id, req.session.userId);
   if (c) {
@@ -170,10 +176,14 @@ app.post('/api/chat', requireAuth, async (req, res) => {
   if (u.msg_used >= limit) {
     return res.status(402).json({ error: 'quota', message: "Tu as atteint ta limite de messages ce mois-ci." });
   }
-  const text = (req.body.message || '').toString().slice(0, 4000).trim();
-  const image = req.body.image; // { media_type, data } ou undefined
-  const okType = image && ['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(image.media_type);
-  if (!text && !okType) return res.status(400).json({ error: 'empty' });
+  const text = (req.body.message || '').toString().slice(0, 8000).trim();
+  const file = req.body.file || null; // { kind:'image'|'pdf'|'text', media_type, data, text, name }
+  const IMG = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+  let fileKind = null;
+  if (file && file.kind === 'image' && IMG.includes(file.media_type) && file.data) fileKind = 'image';
+  else if (file && file.kind === 'pdf' && file.data) fileKind = 'pdf';
+  else if (file && file.kind === 'text' && typeof file.text === 'string') fileKind = 'text';
+  if (!text && !fileKind) return res.status(400).json({ error: 'empty' });
   if (!ANTHROPIC_API_KEY) return res.status(500).json({ error: 'config', message: "L'IA n'est pas configurée (clé API manquante)." });
 
   // Conversation courante (ou nouvelle si aucune)
@@ -188,14 +198,22 @@ app.post('/api/chat', requireAuth, async (req, res) => {
 
   const past = db.prepare('SELECT role, content FROM messages WHERE conversation_id = ? ORDER BY id DESC LIMIT 20').all(convId).reverse();
   const messages = past.map(m => ({ role: m.role, content: m.content }));
+  const blocks = [];
+  let textForAI = text;
+  if (fileKind === 'image') {
+    blocks.push({ type: 'image', source: { type: 'base64', media_type: file.media_type, data: file.data } });
+  } else if (fileKind === 'pdf') {
+    blocks.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: file.data } });
+  } else if (fileKind === 'text') {
+    const nm = (file.name || 'fichier').slice(0, 120);
+    textForAI = 'Fichier joint "' + nm + '" :\n\n' + file.text.slice(0, 100000) + (text ? '\n\n' + text : '');
+  }
   let userContent;
-  if (okType && image.data) {
-    userContent = [
-      { type: 'image', source: { type: 'base64', media_type: image.media_type, data: image.data } },
-      { type: 'text', text: text || "Peux-tu m'aider avec cette image ?" }
-    ];
+  if (blocks.length) {
+    blocks.push({ type: 'text', text: textForAI || "Peux-tu m'aider avec ce fichier ?" });
+    userContent = blocks;
   } else {
-    userContent = text;
+    userContent = textForAI;
   }
   messages.push({ role: 'user', content: userContent });
 
@@ -218,7 +236,11 @@ app.post('/api/chat', requireAuth, async (req, res) => {
     const reply = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n').trim() || '…';
 
     const now = Date.now();
-    const storedUser = okType ? (text ? text + '\n🖼️ [image]' : '🖼️ [image]') : text;
+    let marker = '';
+    if (fileKind === 'image') marker = '🖼️ [image]';
+    else if (fileKind === 'pdf') marker = '📄 [' + (file.name || 'PDF') + ']';
+    else if (fileKind === 'text') marker = '📎 [' + (file.name || 'fichier') + ']';
+    const storedUser = marker ? (text ? text + '\n' + marker : marker) : text;
     db.prepare('INSERT INTO messages (user_id, conversation_id, role, content, created_at) VALUES (?,?,?,?,?)').run(u.id, convId, 'user', storedUser, now);
     db.prepare('INSERT INTO messages (user_id, conversation_id, role, content, created_at) VALUES (?,?,?,?,?)').run(u.id, convId, 'assistant', reply, now + 1);
     db.prepare('UPDATE users SET msg_used = msg_used + 1 WHERE id = ?').run(u.id);

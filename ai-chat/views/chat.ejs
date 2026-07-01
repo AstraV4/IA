@@ -13,7 +13,10 @@
       <% conversations.forEach(function(c){ %>
         <a class="conv <%= c.id===currentId?'active':'' %>" href="/chat?c=<%= c.id %>" data-id="<%= c.id %>">
           <span class="conv-t"><%= c.title || 'Conversation' %></span>
-          <button class="conv-del" type="button" data-del="<%= c.id %>" title="Supprimer">🗑</button>
+          <span class="conv-actions">
+            <button class="conv-edit" type="button" data-edit="<%= c.id %>" title="Renommer">✏️</button>
+            <button class="conv-del" type="button" data-del="<%= c.id %>" title="Supprimer">🗑</button>
+          </span>
         </a>
       <% }) %>
     </div>
@@ -40,28 +43,29 @@
     <div class="messages" id="messages">
       <% if (!history.length) { %>
         <div class="empty" id="empty">
-          <div class="empty-icon">✨</div>
+          <div class="empty-icon">✦</div>
           <h3>Bonjour !</h3>
-          <p>Pose ta question, ou envoie une photo pour que je t'aide.</p>
+          <p>Pose ta question, ou envoie un fichier (image, PDF, texte…) pour que je t'aide.</p>
         </div>
       <% } %>
       <% history.forEach(function(m){ %>
         <% if (m.role === 'user') { %>
           <div class="row user"><div class="msg user"><%= m.content %></div></div>
         <% } else { %>
-          <div class="row ai"><div class="ava">✨</div><div class="msg ai"><%= m.content %></div></div>
+          <div class="row ai"><div class="ava">✦</div><div class="msg ai"><%= m.content %></div></div>
         <% } %>
       <% }) %>
     </div>
 
     <div class="preview" id="preview" hidden>
-      <img id="preview-img" alt="aperçu" />
+      <img id="preview-img" alt="aperçu" hidden />
+      <div class="filechip" id="preview-chip" hidden><span class="fi" id="preview-icon">📄</span><span class="fn" id="preview-name"></span></div>
       <button type="button" id="preview-remove" title="Retirer">✕</button>
     </div>
 
     <div class="composer">
-      <input type="file" id="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden />
-      <button class="attach" id="attach" title="Ajouter une photo">📎</button>
+      <input type="file" id="file" hidden />
+      <button class="attach" id="attach" title="Joindre un fichier">📎</button>
       <textarea id="input" placeholder="Écris ton message…" rows="1"></textarea>
       <button class="send" id="send" title="Envoyer">➤</button>
     </div>

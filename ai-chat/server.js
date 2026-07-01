@@ -2,6 +2,7 @@ const express = require('express');
 const session = require('express-session');
 const SQLiteStore = require('connect-sqlite3')(session);
 const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 const path = require('path');
 const { db, DATA_DIR } = require('./db');
 
@@ -125,6 +126,7 @@ app.post('/login', async (req, res) => {
   }
 });
 app.post('/logout', (req, res) => req.session.destroy(() => res.redirect('/')));
+app.get('/forgot', (req, res) => res.render('forgot'));
 
 app.get('/chat', requireAuth, (req, res) => {
   const u = res.locals.me;
@@ -165,7 +167,28 @@ app.post('/api/conversations/:id/delete', requireAuth, (req, res) => {
 app.get('/account', requireAuth, (req, res) => {
   const u = res.locals.me;
   ensurePeriod(u);
-  res.render('account', { used: u.msg_used, limit: limitFor(u.plan), plan: u.plan });
+  res.render('account', { used: u.msg_used, limit: limitFor(u.plan), plan: u.plan, pw: req.query.pw || null });
+});
+
+app.post('/account/password', requireAuth, async (req, res) => {
+  try {
+    const u = res.locals.me;
+    const cur = req.body.current || '';
+    const nw = req.body.newpw || '';
+    if (nw.length < 6) return res.redirect('/account?pw=short');
+    if (!(await bcrypt.compare(cur, u.password))) return res.redirect('/account?pw=bad');
+    const hash = await bcrypt.hash(nw, 10);
+    db.prepare('UPDATE users SET password = ? WHERE id = ?').run(hash, u.id);
+    res.redirect('/account?pw=ok');
+  } catch (e) { console.error('PW CHANGE', e); res.redirect('/account?pw=err'); }
+});
+
+app.post('/account/delete', requireAuth, (req, res) => {
+  const id = req.session.userId;
+  db.prepare('DELETE FROM messages WHERE user_id = ?').run(id);
+  db.prepare('DELETE FROM conversations WHERE user_id = ?').run(id);
+  db.prepare('DELETE FROM users WHERE id = ?').run(id);
+  req.session.destroy(() => res.redirect('/'));
 });
 
 // ===================== API CHAT =====================
@@ -256,7 +279,20 @@ app.post('/api/chat', requireAuth, async (req, res) => {
 // ===================== ADMIN (gérer le Pro à la main) =====================
 app.get('/admin', requireAuth, requireAdmin, (req, res) => {
   const users = db.prepare('SELECT id, email, plan, msg_used, created_at FROM users ORDER BY id DESC').all();
-  res.render('admin', { users, proLimit: PRO_LIMIT, freeLimit: FREE_LIMIT });
+  res.render('admin', { users, proLimit: PRO_LIMIT, freeLimit: FREE_LIMIT, notice: null });
+});
+app.post('/admin/resetpw', requireAuth, requireAdmin, async (req, res) => {
+  const id = parseInt(req.body.userId, 10);
+  const target = db.prepare('SELECT id, email FROM users WHERE id = ?').get(id);
+  let notice = null;
+  if (target) {
+    const temp = crypto.randomBytes(4).toString('hex'); // 8 caractères
+    const hash = await bcrypt.hash(temp, 10);
+    db.prepare('UPDATE users SET password = ? WHERE id = ?').run(hash, id);
+    notice = { email: target.email, temp };
+  }
+  const users = db.prepare('SELECT id, email, plan, msg_used, created_at FROM users ORDER BY id DESC').all();
+  res.render('admin', { users, proLimit: PRO_LIMIT, freeLimit: FREE_LIMIT, notice });
 });
 app.post('/admin/setplan', requireAuth, requireAdmin, (req, res) => {
   const id = parseInt(req.body.userId, 10);

@@ -19,10 +19,17 @@
 
 <div class="admin">
   <h2>🛠️ Panneau admin</h2>
-  <p style="color:var(--dim);margin-top:6px">Quand quelqu'un t'ajoute sur Discord (<%= discordHandle %>) et te donne son e-mail, passe-le en Pro ici.</p>
+  <p style="color:var(--dim);margin-top:6px">Quand quelqu'un t'ajoute sur Discord (<%= discordHandle %>), tu peux le passer en Pro ou réinitialiser son mot de passe ici.</p>
+
+  <% if (notice) { %>
+    <div class="ok" style="margin-top:16px">
+      🔑 Mot de passe temporaire pour <b><%= notice.email %></b> : <b style="font-family:monospace;font-size:1.05rem"><%= notice.temp %></b>
+      <div style="color:var(--dim);font-size:.85rem;margin-top:4px">Envoie-le-lui sur Discord. Il pourra le changer dans « Mon compte ».</div>
+    </div>
+  <% } %>
 
   <table>
-    <tr><th>ID</th><th>E-mail</th><th>Forfait</th><th>Messages</th><th>Action</th></tr>
+    <tr><th>ID</th><th>E-mail</th><th>Forfait</th><th>Messages</th><th>Forfait</th><th>Mot de passe</th></tr>
     <% users.forEach(function(u){ %>
       <tr>
         <td><%= u.id %></td>
@@ -39,6 +46,12 @@
               <input type="hidden" name="plan" value="pro" />
               <button class="btn-primary btn mini" type="submit">Passer Pro</button>
             <% } %>
+          </form>
+        </td>
+        <td>
+          <form method="POST" action="/admin/resetpw" style="display:inline" onsubmit="return confirm('Réinitialiser le mot de passe de <%= u.email %> ?')">
+            <input type="hidden" name="userId" value="<%= u.id %>" />
+            <button class="btn mini" type="submit">🔑 Réinit.</button>
           </form>
         </td>
       </tr>

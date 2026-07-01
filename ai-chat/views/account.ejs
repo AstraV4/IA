@@ -31,7 +31,7 @@
     <div style="margin-top:26px;padding-top:22px;border-top:1px solid var(--border)">
       <h3 style="margin-bottom:6px">Passer au Pro</h3>
       <p style="color:var(--dim);font-size:.92rem;margin-bottom:10px"><b><%= proLimit %></b> messages / mois au lieu de <%= freeLimit %>.</p>
-      <div style="background:#0f0f15;border:1px solid var(--border);border-radius:12px;padding:16px">
+      <div style="background:var(--panel2);border:1px solid var(--border);border-radius:12px;padding:16px">
         <p style="margin-bottom:8px">Pour débloquer le Pro :</p>
         <ol style="color:var(--dim);font-size:.92rem;margin-left:18px;line-height:1.7">
           <li>Ajoute <b style="color:var(--text)"><%= discordHandle %></b> sur Discord</li>
@@ -43,6 +43,31 @@
   <% } else { %>
     <p style="margin-top:26px;color:var(--dim)">Merci d'être Pro ! 💜 Tu profites de <%= proLimit %> messages par mois.</p>
   <% } %>
-  <% if (isAdmin) { %><p style="margin-top:20px"><a class="btn" href="/admin">🛠️ Panneau admin</a></p><% } %>
+
+  <!-- Changer le mot de passe -->
+  <div style="margin-top:26px;padding-top:22px;border-top:1px solid var(--border)">
+    <h3 style="margin-bottom:10px">🔑 Changer mon mot de passe</h3>
+    <% if (pw === 'ok') { %><div class="ok">✅ Mot de passe changé !</div><% } %>
+    <% if (pw === 'bad') { %><div class="error">❌ Mot de passe actuel incorrect.</div><% } %>
+    <% if (pw === 'short') { %><div class="error">❌ Le nouveau mot de passe doit faire au moins 6 caractères.</div><% } %>
+    <form method="POST" action="/account/password">
+      <label>Mot de passe actuel</label>
+      <input type="password" name="current" required />
+      <label>Nouveau mot de passe</label>
+      <input type="password" name="newpw" minlength="6" required />
+      <button class="btn-primary btn" type="submit" style="margin-top:14px">Changer le mot de passe</button>
+    </form>
+  </div>
+
+  <% if (isAdmin) { %><p style="margin-top:22px"><a class="btn" href="/admin">🛠️ Espace admin</a></p><% } %>
+
+  <!-- Zone de danger -->
+  <div style="margin-top:26px;padding-top:22px;border-top:1px solid var(--border)">
+    <h3 style="margin-bottom:6px;color:var(--danger)">Zone de danger</h3>
+    <p style="color:var(--dim);font-size:.9rem;margin-bottom:12px">La suppression de ton compte est définitive : conversations et données seront perdues.</p>
+    <form method="POST" action="/account/delete" onsubmit="return confirm('Supprimer ton compte définitivement ? Cette action est irréversible.')">
+      <button class="btn btn-danger" type="submit">Supprimer mon compte</button>
+    </form>
+  </div>
 </div>
 </body></html>

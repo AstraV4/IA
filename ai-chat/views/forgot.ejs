@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="fr"><head>
+<meta charset="UTF-8" /><meta name="viewport" content="width=device-width,initial-scale=1.0" />
+<title>Mot de passe oublié · <%= siteName %></title>
+<link rel="stylesheet" href="/static/css/style.css" />
+</head><body>
+<nav class="nav"><a class="brand" href="/"><span class="m"></span><%= siteName %></a></nav>
+<div class="auth">
+  <h2>Mot de passe oublié</h2>
+  <p style="color:var(--dim);font-size:.92rem;line-height:1.6;margin-bottom:16px">
+    Pas de panique ! Pour réinitialiser ton mot de passe :
+  </p>
+  <ol style="color:var(--dim);font-size:.92rem;line-height:1.8;margin-left:18px">
+    <li>Ajoute <b style="color:var(--text)"><%= discordHandle %></b> sur Discord</li>
+    <li>Donne-lui l'<b style="color:var(--text)">e-mail</b> de ton compte</li>
+    <li>Il te renvoie un <b style="color:var(--text)">mot de passe temporaire</b></li>
+    <li>Connecte-toi avec, puis change-le dans « Mon compte »</li>
+  </ol>
+  <a class="btn-primary btn" href="/login" style="width:100%;text-align:center;margin-top:20px">Retour à la connexion</a>
+</div>
+</body></html>

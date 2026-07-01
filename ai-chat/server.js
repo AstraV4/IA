@@ -38,15 +38,21 @@ app.use(session({
 
 // Variables dispo dans toutes les vues
 app.use((req, res, next) => {
-  const me = req.session.userId
-    ? db.prepare('SELECT * FROM users WHERE id = ?').get(req.session.userId)
-    : null;
-  res.locals.me = me;
+  try {
+    const me = req.session.userId
+      ? db.prepare('SELECT * FROM users WHERE id = ?').get(req.session.userId)
+      : null;
+    res.locals.me = me;
+    res.locals.isAdmin = !!(me && ADMIN_EMAIL && me.email_lower === ADMIN_EMAIL);
+  } catch (e) {
+    console.error('LOCALS ERROR:', e);
+    res.locals.me = null;
+    res.locals.isAdmin = false;
+  }
   res.locals.siteName = SITE_NAME;
   res.locals.freeLimit = FREE_LIMIT;
   res.locals.proLimit = PRO_LIMIT;
   res.locals.discordHandle = DISCORD_HANDLE;
-  res.locals.isAdmin = !!(me && ADMIN_EMAIL && me.email_lower === ADMIN_EMAIL);
   next();
 });
 
@@ -191,5 +197,31 @@ app.post('/admin/setplan', requireAuth, requireAdmin, (req, res) => {
   res.redirect('/admin');
 });
 
+// ===================== DIAGNOSTIC =====================
+app.get('/health', (req, res) => {
+  const info = { ok: true, dataDir: DATA_DIR, node: process.version, hasApiKey: !!ANTHROPIC_API_KEY };
+  try {
+    db.prepare('CREATE TABLE IF NOT EXISTS _health (x INTEGER)').run();
+    db.prepare('INSERT INTO _health (x) VALUES (1)').run();
+    db.prepare('DELETE FROM _health').run();
+    info.dbWrite = 'OK';
+    info.users = db.prepare('SELECT COUNT(*) AS c FROM users').get().c;
+  } catch (e) { info.ok = false; info.dbWrite = 'ERREUR: ' + e.message; }
+  res.json(info);
+});
+
 app.use((req, res) => res.status(404).render('404'));
+
+// Gestionnaire d'erreurs : AFFICHE l'erreur (pour diagnostic)
+app.use((err, req, res, next) => {
+  console.error('ERREUR SERVEUR:', err);
+  res.status(500).type('html').send(
+    '<div style="font-family:monospace;background:#0a0a0f;color:#fca5a5;padding:24px;min-height:100vh">' +
+    '<h2 style="color:#fff">⚠️ Erreur serveur</h2>' +
+    '<p style="color:#9a9aa8">Fais une capture de ce message et envoie-la.</p>' +
+    '<pre style="white-space:pre-wrap;background:#14141b;border:1px solid #23232e;padding:16px;border-radius:10px">' +
+    String(err && (err.stack || err.message || err)).replace(/[<>]/g, '') +
+    '</pre></div>'
+  );
+});
 app.listen(PORT, () => console.log(`✅ ${SITE_NAME} en ligne sur le port ${PORT} (data: ${DATA_DIR})`));

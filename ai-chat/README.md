@@ -45,3 +45,14 @@ depuis un **panneau admin**.
 - Le code bascule automatiquement sur un dossier local si `/data` n'est pas
   accessible (le site marche quand même), mais **monte un Volume sur /data**
   pour ne pas perdre les comptes à chaque déploiement.
+
+## Conversations multiples
+- Chaque compte peut avoir plusieurs conversations (barre de gauche).
+- Bouton "＋ Nouvelle conversation", clic sur une conversation pour l'ouvrir,
+  icône 🗑 pour la supprimer. Chaque conversation garde son propre historique.
+
+## Trouver l'espace admin
+- L'espace admin (/admin) apparaît dans la barre de gauche UNIQUEMENT si tu es
+  connecté avec le compte dont l'e-mail == la variable `ADMIN_EMAIL`.
+- Donc : mets `ADMIN_EMAIL` = l'e-mail EXACT de ton compte, crée/connecte ce
+  compte, et le lien "🛠️ Espace admin" s'affiche (en bas de la barre de gauche).

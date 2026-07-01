@@ -3,37 +3,71 @@
 <meta charset="UTF-8" /><meta name="viewport" content="width=device-width,initial-scale=1.0" />
 <title>Chat · <%= siteName %></title>
 <link rel="stylesheet" href="/static/css/style.css" />
-</head><body>
-<nav class="nav">
-  <a class="brand" href="/"><span class="m"></span><%= siteName %></a>
-  <div class="links">
-    <a href="/account">Mon compte</a>
-    <button class="btn" id="clear" style="padding:9px 14px">Effacer</button>
-    <form method="POST" action="/logout" style="display:inline"><button class="btn" type="submit" style="padding:9px 14px">Déconnexion</button></form>
-  </div>
-</nav>
+</head><body class="chat-body">
+<div class="chat-shell">
+  <div class="side-overlay" id="side-overlay"></div>
+  <aside class="side" id="side">
+    <a class="brand" href="/"><span class="m"></span><%= siteName %></a>
+    <button class="new-conv" id="new-conv">＋ Nouvelle conversation</button>
+    <div class="conv-list" id="conv-list">
+      <% conversations.forEach(function(c){ %>
+        <a class="conv <%= c.id===currentId?'active':'' %>" href="/chat?c=<%= c.id %>" data-id="<%= c.id %>">
+          <span class="conv-t"><%= c.title || 'Conversation' %></span>
+          <button class="conv-del" type="button" data-del="<%= c.id %>" title="Supprimer">🗑</button>
+        </a>
+      <% }) %>
+    </div>
+    <div class="side-foot">
+      <% if (isAdmin) { %><a class="side-link" href="/admin">🛠️ Espace admin</a><% } %>
+      <a class="side-link" href="/account">👤 Mon compte</a>
+      <form method="POST" action="/logout"><button class="side-link" type="submit">↩ Déconnexion</button></form>
+    </div>
+  </aside>
 
-<div class="chat-wrap">
-  <div class="quota">
-    <span>Messages ce mois : <b id="used"><%= used %></b> / <%= limit %></span>
-    <% if (me.plan !== 'pro') { %><a href="/account">Passer au Pro (Discord) →</a><% } else { %><span class="tag pro">PRO</span><% } %>
-  </div>
+  <main class="chat-main">
+    <div class="chat-top">
+      <button class="menu-btn" id="menu-btn" title="Menu">☰</button>
+      <div class="quota">
+        <div class="quota-left">
+          <% if (me.plan === 'pro') { %><span class="tag pro">PRO</span><% } else { %><span class="tag">GRATUIT</span><% } %>
+          <span class="quota-txt"><b id="used"><%= used %></b> / <%= limit %> ce mois</span>
+        </div>
+        <% if (me.plan !== 'pro') { %><a class="quota-up" href="/account">Passer au Pro →</a><% } %>
+      </div>
+    </div>
+    <div class="quota-bar"><i id="quota-fill" style="width:<%= Math.min(100, Math.round(used/limit*100)) %>%"></i></div>
 
-  <div class="messages" id="messages">
-    <% if (!history.length) { %>
-      <div class="empty" id="empty">👋 Pose ta première question à <%= siteName %> !</div>
-    <% } %>
-    <% history.forEach(function(m){ %>
-      <div class="msg <%= m.role === 'user' ? 'user' : 'ai' %>"><%= m.content %></div>
-    <% }) %>
-  </div>
+    <div class="messages" id="messages">
+      <% if (!history.length) { %>
+        <div class="empty" id="empty">
+          <div class="empty-icon">✨</div>
+          <h3>Bonjour !</h3>
+          <p>Pose ta question, ou envoie une photo pour que je t'aide.</p>
+        </div>
+      <% } %>
+      <% history.forEach(function(m){ %>
+        <% if (m.role === 'user') { %>
+          <div class="row user"><div class="msg user"><%= m.content %></div></div>
+        <% } else { %>
+          <div class="row ai"><div class="ava">✨</div><div class="msg ai"><%= m.content %></div></div>
+        <% } %>
+      <% }) %>
+    </div>
 
-  <div class="composer">
-    <textarea id="input" placeholder="Écris ton message…" rows="1"></textarea>
-    <button id="send" title="Envoyer">➤</button>
-  </div>
+    <div class="preview" id="preview" hidden>
+      <img id="preview-img" alt="aperçu" />
+      <button type="button" id="preview-remove" title="Retirer">✕</button>
+    </div>
+
+    <div class="composer">
+      <input type="file" id="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden />
+      <button class="attach" id="attach" title="Ajouter une photo">📎</button>
+      <textarea id="input" placeholder="Écris ton message…" rows="1"></textarea>
+      <button class="send" id="send" title="Envoyer">➤</button>
+    </div>
+  </main>
 </div>
 
-<script>window.LIMIT = <%= limit %>;</script>
+<script>window.LIMIT = <%= limit %>; window.CURRENT = <%= currentId || 'null' %>;</script>
 <script src="/static/js/chat.js"></script>
 </body></html>

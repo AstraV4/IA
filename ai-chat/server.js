@@ -26,7 +26,7 @@ app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 app.set('trust proxy', true);
 app.use(express.urlencoded({ extended: true }));
-app.use(express.json());
+app.use(express.json({ limit: '12mb' }));
 app.use('/static', express.static(path.join(__dirname, 'public')));
 app.use(session({
   name: 'aichat.sid',
@@ -129,8 +129,31 @@ app.post('/logout', (req, res) => req.session.destroy(() => res.redirect('/')));
 app.get('/chat', requireAuth, (req, res) => {
   const u = res.locals.me;
   ensurePeriod(u);
-  const history = db.prepare('SELECT role, content FROM messages WHERE user_id = ? ORDER BY id ASC LIMIT 200').all(u.id);
-  res.render('chat', { history, used: u.msg_used, limit: limitFor(u.plan) });
+  const conversations = db.prepare('SELECT id, title, updated_at FROM conversations WHERE user_id = ? ORDER BY updated_at DESC').all(u.id);
+  let currentId = parseInt(req.query.c, 10) || (conversations[0] && conversations[0].id) || null;
+  if (currentId && !conversations.some(c => c.id === currentId)) currentId = conversations[0] ? conversations[0].id : null;
+  const history = currentId
+    ? db.prepare('SELECT role, content FROM messages WHERE conversation_id = ? ORDER BY id ASC LIMIT 500').all(currentId)
+    : [];
+  res.render('chat', { conversations, currentId, history, used: u.msg_used, limit: limitFor(u.plan) });
+});
+
+// --- API conversations ---
+app.get('/api/conversations', requireAuth, (req, res) => {
+  res.json(db.prepare('SELECT id, title, updated_at FROM conversations WHERE user_id = ? ORDER BY updated_at DESC').all(req.session.userId));
+});
+app.get('/api/conversations/:id/messages', requireAuth, (req, res) => {
+  const c = db.prepare('SELECT id FROM conversations WHERE id = ? AND user_id = ?').get(req.params.id, req.session.userId);
+  if (!c) return res.status(404).json({ error: 'notfound' });
+  res.json(db.prepare('SELECT role, content FROM messages WHERE conversation_id = ? ORDER BY id ASC LIMIT 500').all(c.id));
+});
+app.post('/api/conversations/:id/delete', requireAuth, (req, res) => {
+  const c = db.prepare('SELECT id FROM conversations WHERE id = ? AND user_id = ?').get(req.params.id, req.session.userId);
+  if (c) {
+    db.prepare('DELETE FROM messages WHERE conversation_id = ?').run(c.id);
+    db.prepare('DELETE FROM conversations WHERE id = ?').run(c.id);
+  }
+  res.json({ ok: true });
 });
 
 app.get('/account', requireAuth, (req, res) => {
@@ -148,12 +171,33 @@ app.post('/api/chat', requireAuth, async (req, res) => {
     return res.status(402).json({ error: 'quota', message: "Tu as atteint ta limite de messages ce mois-ci." });
   }
   const text = (req.body.message || '').toString().slice(0, 4000).trim();
-  if (!text) return res.status(400).json({ error: 'empty' });
+  const image = req.body.image; // { media_type, data } ou undefined
+  const okType = image && ['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(image.media_type);
+  if (!text && !okType) return res.status(400).json({ error: 'empty' });
   if (!ANTHROPIC_API_KEY) return res.status(500).json({ error: 'config', message: "L'IA n'est pas configurée (clé API manquante)." });
 
-  const past = db.prepare('SELECT role, content FROM messages WHERE user_id = ? ORDER BY id DESC LIMIT 20').all(u.id).reverse();
+  // Conversation courante (ou nouvelle si aucune)
+  const nowConv = Date.now();
+  let convId = parseInt(req.body.conversation_id, 10) || null;
+  let conv = convId ? db.prepare('SELECT * FROM conversations WHERE id = ? AND user_id = ?').get(convId, u.id) : null;
+  if (!conv) {
+    const title = (text || 'Nouvelle conversation').slice(0, 40);
+    const info = db.prepare('INSERT INTO conversations (user_id, title, created_at, updated_at) VALUES (?,?,?,?)').run(u.id, title, nowConv, nowConv);
+    convId = info.lastInsertRowid; conv = { id: convId, title };
+  }
+
+  const past = db.prepare('SELECT role, content FROM messages WHERE conversation_id = ? ORDER BY id DESC LIMIT 20').all(convId).reverse();
   const messages = past.map(m => ({ role: m.role, content: m.content }));
-  messages.push({ role: 'user', content: text });
+  let userContent;
+  if (okType && image.data) {
+    userContent = [
+      { type: 'image', source: { type: 'base64', media_type: image.media_type, data: image.data } },
+      { type: 'text', text: text || "Peux-tu m'aider avec cette image ?" }
+    ];
+  } else {
+    userContent = text;
+  }
+  messages.push({ role: 'user', content: userContent });
 
   try {
     const r = await fetch('https://api.anthropic.com/v1/messages', {
@@ -174,20 +218,17 @@ app.post('/api/chat', requireAuth, async (req, res) => {
     const reply = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n').trim() || '…';
 
     const now = Date.now();
-    db.prepare('INSERT INTO messages (user_id, role, content, created_at) VALUES (?,?,?,?)').run(u.id, 'user', text, now);
-    db.prepare('INSERT INTO messages (user_id, role, content, created_at) VALUES (?,?,?,?)').run(u.id, 'assistant', reply, now + 1);
+    const storedUser = okType ? (text ? text + '\n🖼️ [image]' : '🖼️ [image]') : text;
+    db.prepare('INSERT INTO messages (user_id, conversation_id, role, content, created_at) VALUES (?,?,?,?,?)').run(u.id, convId, 'user', storedUser, now);
+    db.prepare('INSERT INTO messages (user_id, conversation_id, role, content, created_at) VALUES (?,?,?,?,?)').run(u.id, convId, 'assistant', reply, now + 1);
     db.prepare('UPDATE users SET msg_used = msg_used + 1 WHERE id = ?').run(u.id);
+    db.prepare('UPDATE conversations SET updated_at = ? WHERE id = ?').run(now, convId);
 
-    res.json({ reply, used: u.msg_used + 1, limit });
+    res.json({ reply, used: u.msg_used + 1, limit, conversation_id: convId, title: conv.title });
   } catch (e) {
     console.error(e);
     res.status(502).json({ error: 'ai', message: "Erreur de connexion à l'IA." });
   }
-});
-
-app.post('/api/clear', requireAuth, (req, res) => {
-  db.prepare('DELETE FROM messages WHERE user_id = ?').run(req.session.userId);
-  res.json({ ok: true });
 });
 
 // ===================== ADMIN (gérer le Pro à la main) =====================

@@ -220,7 +220,8 @@ async function sendMessage(){
     if(r.status===402){ const m=addAI("🔒 "+(data.message||"Limite atteinte.")+" [Passe au Pro](/account) pour continuer."); }
     else if(!r.ok){ addAI("⚠️ "+(data.message||"Une erreur est survenue.")); }
     else {
-      addAI(data.reply);
+      const body=addAI(data.reply);
+      if(data.download){ const a=document.createElement('a'); a.href=data.download.url; a.className='dl-btn'; a.textContent='📊 Télécharger le PowerPoint'; const copy=body.querySelector('.copy-btn'); if(copy) body.insertBefore(a,copy); else body.appendChild(a); }
       if(!window.CURRENT && data.conversation_id){ window.CURRENT=data.conversation_id; addConvToSidebar(data.conversation_id, data.title); }
       if(typeof data.used==='number'){ $('used').textContent=data.used; const f=$('quota-fill'); if(f) f.style.width=Math.min(100,Math.round(data.used/window.LIMIT*100))+'%'; }
     }
@@ -231,31 +232,6 @@ send.addEventListener('click', sendMessage);
 input.addEventListener('keydown', (e)=>{ if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); sendMessage(); } });
 
 thread.scrollTop=thread.scrollHeight;
-
-/* ---------- PowerPoint ---------- */
-const pptxModal = $('pptx-modal');
-$('pptx-btn').addEventListener('click', () => { pptxModal.hidden = false; setTimeout(() => $('pptx-topic').focus(), 30); });
-$('pptx-cancel').addEventListener('click', () => { pptxModal.hidden = true; });
-pptxModal.addEventListener('click', (e) => { if (e.target === pptxModal) pptxModal.hidden = true; });
-$('pptx-go').addEventListener('click', async () => {
-  const topic = $('pptx-topic').value.trim(); if (!topic) return;
-  const slides = $('pptx-count').value;
-  pptxModal.hidden = true; $('pptx-topic').value = '';
-  addUser('📊 PowerPoint : ' + topic, null);
-  const typing = addTyping();
-  try {
-    const r = await fetch('/api/generate/pptx', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ topic, slides }) });
-    const data = await r.json(); typing.remove();
-    if (r.status === 402) { addAI("🔒 " + (data.message || "Limite atteinte.")); }
-    else if (!r.ok) { addAI("⚠️ " + (data.message || "La génération a échoué.")); }
-    else {
-      const body = addAI("✅ Ta présentation **" + (data.title || topic) + "** est prête !");
-      const a = document.createElement('a'); a.href = data.url; a.className = 'dl-btn'; a.textContent = '📊 Télécharger le PowerPoint';
-      const copy = body.querySelector('.copy-btn'); if (copy) body.insertBefore(a, copy); else body.appendChild(a);
-      if (typeof data.used === 'number') { $('used').textContent = data.used; const f = $('quota-fill'); if (f) f.style.width = Math.min(100, Math.round(data.used / window.LIMIT * 100)) + '%'; }
-    }
-  } catch (e) { typing.remove(); addAI("⚠️ Erreur pendant la génération."); }
-});
 
 /* ---------- Export de la conversation ---------- */
 $('export-btn').addEventListener('click', () => {

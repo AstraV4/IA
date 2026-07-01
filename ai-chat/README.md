@@ -58,9 +58,10 @@ depuis un **panneau admin**.
   compte, et le lien "🛠️ Espace admin" s'affiche (en bas de la barre de gauche).
 
 ## PowerPoint & fichiers générés
-- Bouton 📊 dans la barre de saisie : l'IA rédige les slides et le serveur
-  fabrique un vrai fichier .pptx téléchargeable (librairie pptxgenjs, installée
-  automatiquement par `npm install`).
+- Demande directement dans le chat : "fais-moi un powerpoint sur X" (ou "diaporama",
+  "pptx", "slides"). L'IA rédige les slides, le serveur fabrique un vrai fichier .pptx
+  téléchargeable (librairie pptxgenjs, installée automatiquement par `npm install`).
+- Tu peux préciser le nombre de slides ("fais 12 slides sur ...").
 - Les fichiers générés sont stockés dans DATA_DIR/generated (garde un Volume /data).
 - Générer une présentation compte comme 1 message dans le quota.
 - Bouton "⬇️ Exporter la conversation" : télécharge la discussion en .md.

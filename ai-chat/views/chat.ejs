@@ -80,7 +80,6 @@
           <div class="c-left">
             <input type="file" id="file" hidden />
             <button class="tool" id="attach" title="Joindre un fichier">📎</button>
-            <button class="tool" id="pptx-btn" title="Générer un PowerPoint">📊</button>
           </div>
           <button class="send" id="send" title="Envoyer">➤</button>
         </div>
@@ -98,24 +97,6 @@
     <div class="modal-actions">
       <button class="btn" type="button" id="modal-cancel">Annuler</button>
       <button class="btn-primary btn" type="button" id="modal-ok">OK</button>
-    </div>
-  </div>
-</div>
-
-<div class="modal-overlay" id="pptx-modal" hidden>
-  <div class="modal">
-    <h3>📊 Générer un PowerPoint</h3>
-    <p class="modal-msg">Décris le sujet, l'IA crée les slides et te donne le fichier.</p>
-    <input id="pptx-topic" class="modal-input" placeholder="Ex : La Révolution française" />
-    <label style="font-size:.82rem;color:var(--dim);display:block;margin:-8px 0 6px">Nombre de slides</label>
-    <select id="pptx-count" class="modal-input">
-      <option value="5">5 slides</option>
-      <option value="8" selected>8 slides</option>
-      <option value="12">12 slides</option>
-    </select>
-    <div class="modal-actions">
-      <button class="btn" type="button" id="pptx-cancel">Annuler</button>
-      <button class="btn-primary btn" type="button" id="pptx-go">Générer</button>
     </div>
   </div>
 </div>

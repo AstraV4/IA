@@ -30,15 +30,19 @@
   <% if (plan !== 'pro') { %>
     <div style="margin-top:26px;padding-top:22px;border-top:1px solid var(--border)">
       <h3 style="margin-bottom:6px">Passer au Pro</h3>
-      <p style="color:var(--dim);font-size:.92rem;margin-bottom:14px"><b><%= proLimit %></b> messages / mois pour <b><%= proLabel %></b>.</p>
-      <% if (stripeEnabled) { %>
-        <form method="POST" action="/billing/checkout"><button class="btn-primary btn" type="submit">Passer au Pro — <%= proLabel %></button></form>
-      <% } else { %>
-        <div class="error">Le paiement n'est pas encore configuré par l'administrateur (clés Stripe manquantes).</div>
-      <% } %>
+      <p style="color:var(--dim);font-size:.92rem;margin-bottom:10px"><b><%= proLimit %></b> messages / mois au lieu de <%= freeLimit %>.</p>
+      <div style="background:#0f0f15;border:1px solid var(--border);border-radius:12px;padding:16px">
+        <p style="margin-bottom:8px">Pour débloquer le Pro :</p>
+        <ol style="color:var(--dim);font-size:.92rem;margin-left:18px;line-height:1.7">
+          <li>Ajoute <b style="color:var(--text)"><%= discordHandle %></b> sur Discord</li>
+          <li>Envoie-lui ton e-mail : <b style="color:var(--text)"><%= me.email %></b></li>
+          <li>Il active ton Pro 🎉</li>
+        </ol>
+      </div>
     </div>
   <% } else { %>
     <p style="margin-top:26px;color:var(--dim)">Merci d'être Pro ! 💜 Tu profites de <%= proLimit %> messages par mois.</p>
   <% } %>
+  <% if (isAdmin) { %><p style="margin-top:20px"><a class="btn" href="/admin">🛠️ Panneau admin</a></p><% } %>
 </div>
 </body></html>

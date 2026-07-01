@@ -38,16 +38,17 @@
   </div>
   <div class="plan pro">
     <h3>Pro</h3>
-    <div class="price"><%= proLabel %></div>
+    <div class="price">Sur Discord</div>
     <ul>
       <li><b><%= proLimit %></b> messages / mois</li>
       <li>Réponses prioritaires</li>
       <li>Tout le gratuit inclus</li>
     </ul>
+    <p style="color:var(--dim);font-size:.9rem;margin-bottom:14px">Pour passer Pro, ajoute <b><%= discordHandle %></b> sur Discord.</p>
     <% if (me) { %>
-      <a class="btn-primary btn" href="/account" style="width:100%;text-align:center">Passer au Pro</a>
+      <a class="btn-primary btn" href="/account" style="width:100%;text-align:center">Voir comment passer Pro</a>
     <% } else { %>
-      <a class="btn-primary btn" href="/register" style="width:100%;text-align:center">Choisir Pro</a>
+      <a class="btn-primary btn" href="/register" style="width:100%;text-align:center">Créer un compte</a>
     <% } %>
   </div>
 </section>

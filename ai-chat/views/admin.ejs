@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="fr"><head>
+<meta charset="UTF-8" /><meta name="viewport" content="width=device-width,initial-scale=1.0" />
+<title>Admin · <%= siteName %></title>
+<link rel="stylesheet" href="/static/css/style.css" />
+<style>
+  .admin{max-width:800px;margin:5vh auto;padding:0 16px}
+  table{width:100%;border-collapse:collapse;margin-top:18px;background:var(--panel);border:1px solid var(--border);border-radius:14px;overflow:hidden}
+  th,td{padding:12px 14px;text-align:left;font-size:.9rem;border-bottom:1px solid var(--border)}
+  th{color:var(--dim);font-weight:600;font-size:.78rem;text-transform:uppercase;letter-spacing:.04em}
+  tr:last-child td{border-bottom:none}
+  .mini{padding:7px 12px;font-size:.82rem;border-radius:9px}
+</style>
+</head><body>
+<nav class="nav">
+  <a class="brand" href="/"><span class="m"></span><%= siteName %></a>
+  <div class="links"><a href="/chat">Chat</a><a href="/account">Mon compte</a></div>
+</nav>
+
+<div class="admin">
+  <h2>🛠️ Panneau admin</h2>
+  <p style="color:var(--dim);margin-top:6px">Quand quelqu'un t'ajoute sur Discord (<%= discordHandle %>) et te donne son e-mail, passe-le en Pro ici.</p>
+
+  <table>
+    <tr><th>ID</th><th>E-mail</th><th>Forfait</th><th>Messages</th><th>Action</th></tr>
+    <% users.forEach(function(u){ %>
+      <tr>
+        <td><%= u.id %></td>
+        <td><%= u.email %></td>
+        <td><span class="tag <%= u.plan==='pro'?'pro':'' %>"><%= u.plan==='pro'?'PRO':'GRATUIT' %></span></td>
+        <td><%= u.msg_used %> / <%= u.plan==='pro'?proLimit:freeLimit %></td>
+        <td>
+          <form method="POST" action="/admin/setplan" style="display:inline">
+            <input type="hidden" name="userId" value="<%= u.id %>" />
+            <% if (u.plan==='pro') { %>
+              <input type="hidden" name="plan" value="free" />
+              <button class="btn btn-danger mini" type="submit">Repasser Gratuit</button>
+            <% } else { %>
+              <input type="hidden" name="plan" value="pro" />
+              <button class="btn-primary btn mini" type="submit">Passer Pro</button>
+            <% } %>
+          </form>
+        </td>
+      </tr>
+    <% }) %>
+  </table>
+</div>
+</body></html>

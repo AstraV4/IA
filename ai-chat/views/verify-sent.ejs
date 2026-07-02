@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="fr"><head>
+<meta charset="UTF-8" /><meta name="viewport" content="width=device-width,initial-scale=1.0" />
+<title>Confirme ton e-mail · <%= siteName %></title>
+<link rel="stylesheet" href="/static/css/style.css" />
+</head><body>
+<nav class="nav"><a class="brand" href="/"><span class="m"></span><%= siteName %></a></nav>
+<div class="auth" style="text-align:center">
+  <div style="font-size:2.4rem;margin-bottom:6px">📨</div>
+  <h2>Vérifie ta boîte mail</h2>
+  <p style="color:var(--dim);font-size:.94rem;line-height:1.7;margin-bottom:8px">
+    On vient d'envoyer un e-mail<% if (email) { %> à <b style="color:var(--text)"><%= email %></b><% } %>.<br>
+    Clique sur le lien qu'il contient pour <b style="color:var(--text)">activer ton compte</b>.
+  </p>
+  <p style="color:var(--dim);font-size:.85rem;line-height:1.6;margin-bottom:16px">Pense à regarder dans les <b>spams</b> si tu ne le vois pas.</p>
+  <% if (email) { %><div class="alt" style="margin-bottom:8px"><a href="/resend-verify?email=<%= encodeURIComponent(email) %>">Renvoyer l'e-mail</a></div><% } %>
+  <a class="btn-primary btn" href="/login" style="width:100%;text-align:center">J'ai confirmé, me connecter</a>
+</div>
+</body></html>

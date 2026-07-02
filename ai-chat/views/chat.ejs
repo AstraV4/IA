@@ -12,13 +12,15 @@
       <a class="logo" href="/"><span class="m"></span><%= siteName %></a>
     </div>
     <button class="new" id="new-conv"><span class="plus">＋</span> Nouvelle conversation</button>
+    <a class="side-link nav-link" href="/correction">✍️ Correction de texte</a>
     <input class="conv-search" id="conv-search" placeholder="🔎 Rechercher…" />
     <div class="lbl">Récents</div>
     <div class="conv-list" id="conv-list">
       <% conversations.forEach(function(c){ %>
-        <a class="conv <%= c.id===currentId?'active':'' %>" href="/chat?c=<%= c.id %>" data-id="<%= c.id %>">
+        <a class="conv <%= c.id===currentId?'active':'' %> <%= c.pinned?'pinned':'' %>" href="/chat?c=<%= c.id %>" data-id="<%= c.id %>">
           <span class="conv-t"><%= c.title || 'Conversation' %></span>
           <span class="conv-actions">
+            <button class="conv-pin <%= c.pinned?'on':'' %>" type="button" data-pin="<%= c.id %>" title="<%= c.pinned?'Désépingler':'Épingler' %>">📌</button>
             <button class="conv-edit" type="button" data-edit="<%= c.id %>" title="Renommer">✏️</button>
             <button class="conv-del" type="button" data-del="<%= c.id %>" title="Supprimer">🗑</button>
           </span>
@@ -74,6 +76,7 @@
         <div class="filechip" id="preview-chip" hidden><span class="fi" id="preview-icon">📄</span><span class="fn" id="preview-name"></span></div>
         <button type="button" id="preview-remove" title="Retirer">✕</button>
       </div>
+      <div class="voice-bar" id="voice-bar" hidden><span class="dot"></span> Je t'écoute… <button type="button" id="voice-stop">Stop</button></div>
       <div class="composer">
         <textarea id="input" placeholder="Écris ton message à <%= siteName %>…" rows="1"></textarea>
         <div class="c-row">
@@ -81,12 +84,26 @@
             <input type="file" id="file" hidden />
             <button class="tool" id="attach" title="Joindre un fichier">📎</button>
           </div>
-          <button class="send" id="send" title="Envoyer">➤</button>
+          <div class="c-right">
+            <button class="tool" id="mic" title="Dicter à la voix">🎤</button>
+            <button class="tool" id="speak" title="Lire les réponses à voix haute">🔊</button>
+            <button class="tool wave" id="voice-mode" title="Mode vocal (conversation mains libres)"><span></span><span></span><span></span><span></span></button>
+            <button class="send" id="send" title="Envoyer">➤</button>
+          </div>
         </div>
       </div>
       <div class="hint"><%= siteName %> peut faire des erreurs. Vérifie les informations importantes.</div>
     </div>
   </main>
+</div>
+
+<div class="voice-overlay" id="voice-overlay" hidden>
+  <div class="voice-panel">
+    <div class="orb" id="voice-orb"><span></span><span></span><span></span><span></span><span></span></div>
+    <div class="voice-status" id="voice-status">Initialisation…</div>
+    <div class="voice-live" id="voice-live"></div>
+    <button class="voice-close" id="voice-close">Terminer</button>
+  </div>
 </div>
 
 <div class="modal-overlay" id="modal" hidden>

@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="fr"><head>
+<meta charset="UTF-8" /><meta name="viewport" content="width=device-width,initial-scale=1.0" />
+<title>Nouveau mot de passe · <%= siteName %></title>
+<link rel="stylesheet" href="/static/css/style.css" />
+</head><body>
+<nav class="nav"><a class="brand" href="/"><span class="m"></span><%= siteName %></a></nav>
+<div class="auth">
+  <h2>Nouveau mot de passe</h2>
+  <% if (error) { %><div class="error"><%= error %></div><% } %>
+  <% if (token) { %>
+    <form method="POST" action="/reset">
+      <input type="hidden" name="token" value="<%= token %>" />
+      <label>Nouveau mot de passe (6 caractères min.)</label>
+      <input type="password" name="password" required minlength="6" />
+      <button class="btn-primary" type="submit">Enregistrer</button>
+    </form>
+  <% } else { %>
+    <a class="btn-primary btn" href="/forgot" style="width:100%;text-align:center;margin-top:10px">Refaire une demande</a>
+  <% } %>
+</div>
+</body></html>

@@ -10,6 +10,19 @@
   th{color:var(--dim);font-weight:600;font-size:.78rem;text-transform:uppercase;letter-spacing:.04em}
   tr:last-child td{border-bottom:none}
   .mini{padding:7px 12px;font-size:.82rem;border-radius:9px}
+  .stat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:18px 0}
+  .stat{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:16px}
+  .stat-n{font-size:1.7rem;font-weight:700;color:var(--accent)}
+  .stat-l{color:var(--dim);font-size:.82rem;margin-top:2px}
+  .chart-card{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:18px;margin-bottom:8px}
+  .chart-title{color:var(--dim);font-size:.82rem;text-transform:uppercase;letter-spacing:.04em;font-weight:600;margin-bottom:16px}
+  .bars{display:flex;align-items:flex-end;gap:10px;height:150px}
+  .bar-col{flex:1;display:flex;flex-direction:column;align-items:center;height:100%}
+  .bar-wrap{flex:1;width:100%;display:flex;align-items:flex-end;justify-content:center}
+  .bar{width:66%;min-height:3px;background:linear-gradient(180deg,var(--accent2),var(--accent));border-radius:7px 7px 0 0;position:relative;display:flex;justify-content:center}
+  .bar-n{position:absolute;top:-18px;font-size:.74rem;color:var(--dim)}
+  .bar-l{color:var(--dim);font-size:.78rem;margin-top:6px}
+  @media(max-width:700px){.stat-grid{grid-template-columns:repeat(2,1fr)}}
 </style>
 </head><body>
 <nav class="nav">
@@ -20,6 +33,29 @@
 <div class="admin">
   <h2>🛠️ Panneau admin</h2>
   <p style="color:var(--dim);margin-top:6px">Quand quelqu'un t'ajoute sur Discord (<%= discordHandle %>), tu peux le passer en Pro ou réinitialiser son mot de passe ici.</p>
+
+  <div class="stat-grid">
+    <div class="stat"><div class="stat-n"><%= stats.users %></div><div class="stat-l">Utilisateurs</div></div>
+    <div class="stat"><div class="stat-n"><%= stats.active7 %></div><div class="stat-l">Actifs (7 jours)</div></div>
+    <div class="stat"><div class="stat-n"><%= stats.pro %></div><div class="stat-l">Comptes Pro</div></div>
+    <div class="stat"><div class="stat-n"><%= stats.newUsers7 %></div><div class="stat-l">Nouveaux (7 j)</div></div>
+    <div class="stat"><div class="stat-n"><%= stats.convs %></div><div class="stat-l">Conversations</div></div>
+    <div class="stat"><div class="stat-n"><%= stats.questions %></div><div class="stat-l">Questions posées</div></div>
+    <div class="stat"><div class="stat-n"><%= stats.msgsTotal %></div><div class="stat-l">Messages (total)</div></div>
+    <div class="stat"><div class="stat-n"><%= stats.msgsToday %></div><div class="stat-l">Messages aujourd'hui</div></div>
+  </div>
+
+  <div class="chart-card">
+    <div class="chart-title">📈 Messages des 7 derniers jours</div>
+    <div class="bars">
+      <% stats.days.forEach(function(d){ %>
+        <div class="bar-col">
+          <div class="bar-wrap"><div class="bar" style="height:<%= Math.round(d.n / stats.maxDay * 100) %>%"><span class="bar-n"><%= d.n %></span></div></div>
+          <div class="bar-l"><%= d.label %></div>
+        </div>
+      <% }) %>
+    </div>
+  </div>
 
   <% if (notice) { %>
     <div class="ok" style="margin-top:16px">

@@ -68,4 +68,14 @@ for (const o of orphans) {
     .run(info.lastInsertRowid, o.user_id);
 }
 
+// --- Migration : vérification e-mail + réinitialisation du mot de passe ---
+if (!hasCol('users', 'verified')) {
+  db.exec("ALTER TABLE users ADD COLUMN verified INTEGER DEFAULT 0");
+  db.exec("UPDATE users SET verified = 1"); // les comptes déjà existants sont considérés vérifiés
+}
+if (!hasCol('users', 'verify_token'))  db.exec("ALTER TABLE users ADD COLUMN verify_token TEXT");
+if (!hasCol('users', 'reset_token'))   db.exec("ALTER TABLE users ADD COLUMN reset_token TEXT");
+if (!hasCol('users', 'reset_expires')) db.exec("ALTER TABLE users ADD COLUMN reset_expires INTEGER");
+if (!hasCol('conversations', 'pinned')) db.exec("ALTER TABLE conversations ADD COLUMN pinned INTEGER DEFAULT 0");
+
 module.exports = { db, DATA_DIR };

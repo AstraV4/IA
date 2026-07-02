@@ -124,6 +124,14 @@ function openModal(opts){
 convList.addEventListener('click', async (e) => {
   const edit = e.target.closest('.conv-edit');
   const del = e.target.closest('.conv-del');
+  const pin = e.target.closest('.conv-pin');
+  if (pin) {
+    e.preventDefault(); e.stopPropagation();
+    const id = pin.getAttribute('data-pin');
+    try { await fetch('/api/conversations/' + id + '/pin', { method:'POST' }); } catch(err){}
+    window.location = '/chat' + (window.CURRENT ? '?c=' + window.CURRENT : '');
+    return;
+  }
   if (edit) {
     e.preventDefault(); e.stopPropagation();
     const id = edit.getAttribute('data-edit');
@@ -198,7 +206,7 @@ function addTyping(){
 function addConvToSidebar(id,title){
   document.querySelectorAll('.conv.active').forEach(c=>c.classList.remove('active'));
   const a=document.createElement('a'); a.className='conv active'; a.href='/chat?c='+id; a.setAttribute('data-id',id);
-  a.innerHTML='<span class="conv-t"></span><span class="conv-actions"><button class="conv-edit" type="button" data-edit="'+id+'" title="Renommer">✏️</button><button class="conv-del" type="button" data-del="'+id+'" title="Supprimer">🗑</button></span>';
+  a.innerHTML='<span class="conv-t"></span><span class="conv-actions"><button class="conv-pin" type="button" data-pin="'+id+'" title="Épingler">📌</button><button class="conv-edit" type="button" data-edit="'+id+'" title="Renommer">✏️</button><button class="conv-del" type="button" data-del="'+id+'" title="Supprimer">🗑</button></span>';
   a.querySelector('.conv-t').textContent=title||'Conversation';
   convList.prepend(a);
 }
@@ -213,14 +221,19 @@ async function sendMessage(){
   input.value=''; input.style.height='auto'; clearFile();
   send.disabled=true;
   const typing=addTyping();
+  if(window.voiceMode) setVoiceStatus('thinking');
   const payloadFile = file ? (file.kind==='text' ? {kind:'text',text:file.text,name:file.name} : {kind:file.kind,media_type:file.media_type,data:file.data,name:file.name}) : undefined;
   try{
     const r=await fetch('/api/chat',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ message:text, conversation_id:window.CURRENT||undefined, file:payloadFile }) });
     const data=await r.json(); typing.remove();
-    if(r.status===402){ const m=addAI("🔒 "+(data.message||"Limite atteinte.")+" [Passe au Pro](/account) pour continuer."); }
-    else if(!r.ok){ addAI("⚠️ "+(data.message||"Une erreur est survenue.")); }
+    if(r.status===402){ addAI("🔒 "+(data.message||"Limite atteinte.")+" [Passe au Pro](/account) pour continuer."); if(window.voiceMode) vmClose(); }
+    else if(!r.ok){ addAI("⚠️ "+(data.message||"Une erreur est survenue.")); if(window.voiceMode) vmListen(); }
     else {
+      const wasVoice = window._voiceTurn; window._voiceTurn = false;
       const body=addAI(data.reply);
+      const willSpeak = window.speakOn || window.voiceMode;
+      if(willSpeak){ if(window.voiceMode) setVoiceStatus('speaking'); speakText(plainForSpeech(data.reply), function(){ if(window.voiceMode) vmListen(); else if(wasVoice) startListening(); }); }
+      else if(window.voiceMode){ vmListen(); }
       if(data.download){ const a=document.createElement('a'); a.href=data.download.url; a.className='dl-btn'; a.textContent='📊 Télécharger le PowerPoint'; const copy=body.querySelector('.copy-btn'); if(copy) body.insertBefore(a,copy); else body.appendChild(a); }
       if(!window.CURRENT && data.conversation_id){ window.CURRENT=data.conversation_id; addConvToSidebar(data.conversation_id, data.title); }
       if(typeof data.used==='number'){ $('used').textContent=data.used; const f=$('quota-fill'); if(f) f.style.width=Math.min(100,Math.round(data.used/window.LIMIT*100))+'%'; }
@@ -246,3 +259,101 @@ $('export-btn').addEventListener('click', () => {
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'conversation.md';
   document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(a.href);
 });
+
+/* ================= Vocal : dictée + mode vocal mains libres ================= */
+window.speakOn = false;
+window.voiceMode = false;
+window._voiceTurn = false;
+const mic = $('mic'), speakBtn = $('speak'), voiceBar = $('voice-bar');
+
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+const recogSupported = !!SR;
+let recog = null, listening = false;
+
+function stopVoiceUI(){ listening = false; if (voiceBar) voiceBar.hidden = true; if (mic) mic.classList.remove('rec'); }
+function stopListening(){ try { if (recog) recog.stop(); } catch(e){} stopVoiceUI(); }
+
+// Écoute une phrase. onFinal(texte) reçoit le résultat.
+function listenOnce(onFinal){
+  if (!recogSupported) return false;
+  if (listening) return true;
+  try { if (window.speechSynthesis) window.speechSynthesis.cancel(); } catch(e){}
+  recog = new SR();
+  recog.lang = 'fr-FR'; recog.interimResults = true; recog.maxAlternatives = 1; recog.continuous = false;
+  let finalText = '';
+  recog.onstart = () => { listening = true; if (!window.voiceMode && voiceBar) voiceBar.hidden = false; if (mic) mic.classList.add('rec'); };
+  recog.onerror = (e) => {
+    stopVoiceUI();
+    if (e && (e.error === 'not-allowed' || e.error === 'service-not-allowed')){ alert("Le micro est bloqué. Autorise le microphone pour ce site dans ton navigateur."); if (window.voiceMode) vmClose(); }
+    else if (window.voiceMode) setVoiceStatus('idle');
+  };
+  recog.onresult = (e) => {
+    let interim = '';
+    for (let i = e.resultIndex; i < e.results.length; i++){ const rr = e.results[i]; if (rr.isFinal) finalText += rr[0].transcript; else interim += rr[0].transcript; }
+    if (window.voiceMode){ const live = $('voice-live'); if (live) live.textContent = (finalText + ' ' + interim).trim(); }
+  };
+  recog.onend = () => {
+    stopVoiceUI();
+    const t = finalText.trim();
+    if (t && onFinal){ onFinal(t); return; }
+    if (window.voiceMode){ setTimeout(() => { if (window.voiceMode && !listening){ setVoiceStatus('listening'); listenOnce(onFinal); } }, 500); }
+  };
+  try { recog.start(); return true; } catch(e){ stopVoiceUI(); return false; }
+}
+
+/* Dictée : remplit le champ sans envoyer */
+function startDictation(){
+  if (!recogSupported){ alert("La dictée vocale n'est pas disponible sur ce navigateur.\nUtilise Google Chrome (ordinateur ou Android)."); return; }
+  listenOnce(function(t){ input.value = (input.value ? input.value + ' ' : '') + t; input.focus(); input.dispatchEvent(new Event('input')); });
+}
+function startListening(){ startDictation(); } // compat (reprise après lecture si 🔊)
+if (mic){
+  mic.addEventListener('click', () => { if (window.voiceMode) return; if (listening) stopListening(); else startDictation(); });
+  if (!recogSupported) mic.style.opacity = '.5';
+}
+const vStop = $('voice-stop'); if (vStop) vStop.addEventListener('click', stopListening);
+
+/* Synthèse vocale */
+function pickFrVoice(){ try { const vs = window.speechSynthesis.getVoices() || []; return vs.find(v => /^fr/i.test(v.lang)) || null; } catch(e){ return null; } }
+function speakText(text, onEnd){
+  if (!('speechSynthesis' in window) || !text){ if (onEnd) onEnd(); return; }
+  try {
+    window.speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(String(text).slice(0, 4000));
+    u.lang = 'fr-FR'; const v = pickFrVoice(); if (v) u.voice = v;
+    u.onend = () => { if (onEnd) onEnd(); };
+    u.onerror = () => { if (onEnd) onEnd(); };
+    window.speechSynthesis.speak(u);
+  } catch(e){ if (onEnd) onEnd(); }
+}
+function plainForSpeech(md){
+  return String(md).replace(/```[\s\S]*?```/g,' bloc de code ').replace(/`([^`]+)`/g,'$1').replace(/\[([^\]]+)\]\([^)]+\)/g,'$1').replace(/[#>*_~|]/g,' ').replace(/\s+/g,' ').trim();
+}
+try { if (localStorage.getItem('speak') === '1'){ window.speakOn = true; if (speakBtn) speakBtn.classList.add('on'); } } catch(e){}
+if ('speechSynthesis' in window){ try { window.speechSynthesis.onvoiceschanged = pickFrVoice; } catch(e){} }
+if (speakBtn){
+  speakBtn.addEventListener('click', () => {
+    window.speakOn = !window.speakOn;
+    speakBtn.classList.toggle('on', window.speakOn);
+    try { localStorage.setItem('speak', window.speakOn ? '1' : '0'); } catch(e){}
+    if (!window.speakOn && 'speechSynthesis' in window) window.speechSynthesis.cancel();
+  });
+}
+
+/* Mode vocal mains libres (overlay onde) */
+const voiceOverlay = $('voice-overlay'), voiceOrb = $('voice-orb'), voiceStatusEl = $('voice-status');
+function setVoiceStatus(state){
+  if (voiceStatusEl){ const map = { listening:"🎧 Je t'écoute…", thinking:'💭 Je réfléchis…', speaking:'🗣️ Je réponds…', idle:'En pause' }; voiceStatusEl.textContent = map[state] || ''; }
+  if (voiceOrb) voiceOrb.className = 'orb ' + (state || '');
+}
+function vmListen(){ setVoiceStatus('listening'); const live = $('voice-live'); if (live) live.textContent = ''; listenOnce(function(t){ setVoiceStatus('thinking'); input.value = t; window._voiceTurn = true; sendMessage(); }); }
+function vmOpen(){
+  if (!recogSupported){ alert("Le mode vocal n'est pas disponible sur ce navigateur.\nUtilise Google Chrome (ordinateur ou Android)."); return; }
+  window.voiceMode = true; if (voiceOverlay) voiceOverlay.hidden = false; vmListen();
+}
+function vmClose(){
+  window.voiceMode = false; if (voiceOverlay) voiceOverlay.hidden = true;
+  stopListening(); try { if (window.speechSynthesis) window.speechSynthesis.cancel(); } catch(e){}
+}
+const vmBtn = $('voice-mode'); if (vmBtn){ vmBtn.addEventListener('click', vmOpen); if (!recogSupported) vmBtn.style.opacity = '.5'; }
+const vmCloseBtn = $('voice-close'); if (vmCloseBtn) vmCloseBtn.addEventListener('click', vmClose);

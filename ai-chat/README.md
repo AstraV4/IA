@@ -65,3 +65,11 @@ depuis un **panneau admin**.
 - Les fichiers générés sont stockés dans DATA_DIR/generated (garde un Volume /data).
 - Générer une présentation compte comme 1 message dans le quota.
 - Bouton "⬇️ Exporter la conversation" : télécharge la discussion en .md.
+
+
+## PowerPoint façon Canva (avec photos)
+- Design pro : mise en page 2 colonnes, couleur de marque choisie par l'IA selon le sujet,
+  label de section, photo d'illustration par slide, pied de page + numéros.
+- Les photos viennent d'une banque d'images libre (Openverse, aucune clé à configurer).
+  Si aucune photo n'est trouvée, un bloc coloré propre s'affiche à la place.
+- C'est l'IA qui décide (via un "outil") de créer une présentation ou de répondre normalement.

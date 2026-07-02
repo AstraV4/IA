@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="fr"><head>
+<meta charset="UTF-8" /><meta name="viewport" content="width=device-width,initial-scale=1.0" />
+<title>Correction · <%= siteName %></title>
+<link rel="stylesheet" href="/static/css/style.css" />
+<script>try{if(localStorage.getItem('theme')==='dark')document.documentElement.setAttribute('data-theme','dark');}catch(e){}</script>
+</head><body>
+<nav class="nav">
+  <a class="brand" href="/"><span class="m"></span><%= siteName %></a>
+  <div class="links"><a href="/chat">← Retour au chat</a></div>
+</nav>
+<div class="corr">
+  <h2>✍️ Correction de texte</h2>
+  <p class="corr-sub">Colle ton texte : je corrige l'orthographe, la grammaire, la frappe et la formulation. Ça reste séparé, ça n'apparaît pas dans tes conversations.</p>
+  <textarea id="corr-input" placeholder="Colle ou écris ton texte à corriger ici…"></textarea>
+  <div class="corr-actions">
+    <span class="corr-quota"><b id="used"><%= used %></b> / <%= limit %> messages ce mois-ci</span>
+    <button class="btn-primary btn" id="corr-go">Corriger le texte</button>
+  </div>
+  <div class="corr-result" id="corr-result" hidden></div>
+</div>
+<script>window.LIMIT = <%= limit %>;</script>
+<script src="/static/js/correction.js"></script>
+</body></html>

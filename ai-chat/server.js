@@ -796,7 +796,7 @@ app.post('/api/chat', requireAuth, async (req, res) => {
     const r = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: { 'x-api-key': ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-      body: JSON.stringify({ model: MODEL, max_tokens: 3000, system: systemToUse, messages, tools })
+      body: JSON.stringify({ model: MODEL, max_tokens: 8192, system: systemToUse, messages, tools })
     });
     if (!r.ok) {
       const errTxt = await r.text();

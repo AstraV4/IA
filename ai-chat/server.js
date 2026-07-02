@@ -406,10 +406,10 @@ async function buildPptx(spec) {
   const slides = (spec && Array.isArray(spec.slides)) ? spec.slides : [];
   const shadow = { type: 'outer', blur: 10, offset: 3, angle: 90, color: '000000', opacity: 0.22 };
 
-  // Photos en parallèle
+  // Photos en parallèle (inutile si la slide a déjà un panneau couleur, un chiffre clé, ou une slide spéciale)
   const [titleImg, slideImgs] = await Promise.all([
     fetchImage(spec && spec.image_query),
-    Promise.all(slides.map(sl => fetchImage(sl && sl.image_query)))
+    Promise.all(slides.map(sl => (sl && (sl.panel || sl.callout || sl.divider || sl.quote)) ? Promise.resolve(null) : fetchImage(sl && sl.image_query)))
   ]);
 
   // ---------- Slide de titre ----------
@@ -427,12 +427,40 @@ async function buildPptx(spec) {
 
   // ---------- Slides de contenu ----------
   slides.forEach((sl, i) => {
+    // ---------- Slide "divider" : page de transition pleine couleur (ouvre une nouvelle partie) ----------
+    if (sl && sl.divider) {
+      const d = pres.addSlide();
+      d.background = { color: ACC };
+      d.addShape('roundRect', { x: 5.65, y: 1.3, w: 1.2, h: 1.2, rectRadius: 0.18, fill: { color: 'FFFFFF' } });
+      d.addText((sl.icon || '\u2726').toString(), { x: 5.65, y: 1.3, w: 1.2, h: 1.2, align: 'center', valign: 'middle', fontSize: 40, color: ACC });
+      d.addText((sl.title || '').toString().toUpperCase(), { x: 1, y: 2.95, w: 10.9, h: 1.1, align: 'center', fontSize: 32, bold: true, color: 'FFFFFF' });
+      if (sl.subtext) d.addText(sl.subtext, { x: 2, y: 4.05, w: 8.9, h: 0.6, align: 'center', fontSize: 14, color: 'FFFFFF' });
+      return;
+    }
+    // ---------- Slide "quote" : accroche/citation forte pleine couleur ----------
+    if (sl && sl.quote) {
+      const q = pres.addSlide();
+      q.background = { color: ACC };
+      q.addShape('roundRect', { x: 0.9, y: 0.7, w: 0.9, h: 0.9, rectRadius: 0.16, fill: { color: 'FFFFFF' } });
+      q.addText((sl.icon || '\u25CE').toString(), { x: 0.9, y: 0.7, w: 0.9, h: 0.9, align: 'center', valign: 'middle', fontSize: 32, color: ACC });
+      const qlabel = (sl.label || '').toString();
+      if (qlabel) q.addText(qlabel.toUpperCase(), { x: 0.9, y: 1.85, w: 10, h: 0.4, fontSize: 13, bold: true, color: 'FFFFFF', charSpacing: 2 });
+      q.addText((sl.title || '').toString().toUpperCase(), { x: 0.9, y: 2.3, w: 10.9, h: 1.6, fontSize: 32, bold: true, color: 'FFFFFF' });
+      q.addShape('roundRect', { x: 0.9, y: 4.15, w: 10.9, h: 1.7, rectRadius: 0.08, fill: { color: 'FFFFFF' } });
+      q.addText((sl.quote || '').toString(), { x: 1.3, y: 4.15, w: 10.1, h: 1.7, fontSize: 18, bold: true, color: DARK, valign: 'middle', lineSpacingMultiple: 1.2 });
+      if (sl.note) q.addText(sl.note, { x: 0.9, y: 6.05, w: 10.9, h: 0.4, fontSize: 13, italic: true, color: 'FFFFFF' });
+      return;
+    }
+
     const img = slideImgs[i];
     const hasImg = !!img;
+    const panel = (sl && sl.panel && typeof sl.panel === 'object') ? sl.panel : null;
+    const callout = (sl && sl.callout && typeof sl.callout === 'object') ? sl.callout : null;
+    const hasRight = hasImg || !!panel || !!callout;
     const c = pres.addSlide();
     c.background = { color: LIGHTBG };
     const CX = 0.9;
-    const CW = hasImg ? 6.2 : 11.4;
+    const CW = hasRight ? 6.2 : 11.4;
     let y = 0.7;
 
     const label = (sl && sl.label ? sl.label : '').toString();
@@ -445,7 +473,7 @@ async function buildPptx(spec) {
     const subtext = (sl && sl.subtext ? sl.subtext : '').toString();
     if (subtext) { c.addText(subtext, { x: CX, y, w: CW, h: 0.4, fontSize: 13, italic: true, color: SOFT }); y += 0.5; }
     const body = (sl && sl.body ? sl.body : '').toString();
-    if (body) { const lines = Math.max(1, Math.ceil(body.length / (hasImg ? 50 : 95))); const h = lines * 0.29 + 0.08; c.addText(body, { x: CX, y, w: CW, h, fontSize: 14, color: BODY, lineSpacingMultiple: 1.15 }); y += h + 0.22; }
+    if (body) { const lines = Math.max(1, Math.ceil(body.length / (hasRight ? 50 : 95))); const h = lines * 0.29 + 0.08; c.addText(body, { x: CX, y, w: CW, h, fontSize: 14, color: BODY, lineSpacingMultiple: 1.15 }); y += h + 0.22; }
 
     const bullets = (sl && Array.isArray(sl.bullets)) ? sl.bullets : [];
     if (bullets.length) { const arr = bullets.map(b => ({ text: String(b), options: { bullet: { code: '2022', indent: 18 }, fontSize: 15, color: BODY, paraSpaceAfter: 10 } })); const h = bullets.length * 0.44 + 0.1; c.addText(arr, { x: CX + 0.05, y, w: CW - 0.05, h, valign: 'top', lineSpacingMultiple: 1.1 }); y += h + 0.12; }
@@ -456,7 +484,159 @@ async function buildPptx(spec) {
     const stats = (sl && Array.isArray(sl.stats)) ? sl.stats : [];
     if (stats.length) { const n = Math.min(stats.length, 3); const gap = 0.3; const sw = (CW - gap * (n - 1)) / n; stats.slice(0, n).forEach((st, idx) => { const sx = CX + idx * (sw + gap); c.addText((st && st.value ? st.value : '').toString(), { x: sx, y, w: sw, h: 0.7, fontSize: 34, bold: true, color: ACC }); c.addText((st && st.label ? st.label : '').toString(), { x: sx, y: y + 0.74, w: sw, h: 0.6, fontSize: 12, color: BODY }); }); y += 1.5; }
 
-    if (hasImg) c.addImage({ data: img, x: 7.55, y: 1.05, w: 5.05, h: 5.3, sizing: { type: 'cover', w: 5.05, h: 5.3 }, shadow });
+    // Cartes à icônes (grille façon "offres" : icône couleur + titre + texte)
+    const cards = (sl && Array.isArray(sl.cards)) ? sl.cards : [];
+    if (cards.length) {
+      const cols = cards.length <= 2 ? cards.length : (cards.length <= 4 ? 2 : 3);
+      const gap = 0.22;
+      const cw = (CW - gap * (cols - 1)) / cols;
+      const ch = 1.5;
+      cards.forEach((cd, idx) => {
+        const col = idx % cols, row = Math.floor(idx / cols);
+        const cx = CX + col * (cw + gap);
+        const cy = y + row * (ch + gap);
+        c.addShape('roundRect', { x: cx, y: cy, w: cw, h: ch, rectRadius: 0.08, fill: { color: 'FFFFFF' }, line: { color: 'E5E7EB', width: 0.75 } });
+        c.addShape('roundRect', { x: cx + 0.2, y: cy + 0.2, w: 0.5, h: 0.5, rectRadius: 0.08, fill: { color: ACC } });
+        c.addText((cd && cd.icon ? cd.icon : '\u2605').toString(), { x: cx + 0.2, y: cy + 0.2, w: 0.5, h: 0.5, align: 'center', valign: 'middle', fontSize: 20, color: 'FFFFFF' });
+        c.addText((cd && cd.title ? cd.title : '').toString(), { x: cx + 0.85, y: cy + 0.2, w: cw - 1.05, h: 0.5, fontSize: 13, bold: true, color: DARK, valign: 'middle' });
+        c.addText((cd && cd.text ? cd.text : '').toString(), { x: cx + 0.2, y: cy + 0.78, w: cw - 0.4, h: ch - 0.95, fontSize: 10.5, color: BODY, valign: 'top', lineSpacingMultiple: 1.08 });
+      });
+      const rows = Math.ceil(cards.length / cols);
+      y += rows * (ch + gap) + 0.1;
+    }
+
+    // Tableau de données (en-tête colorée, façon tableau de résultats)
+    const table = (sl && sl.table && Array.isArray(sl.table.rows)) ? sl.table : null;
+    if (table) {
+      const headers = Array.isArray(table.headers) ? table.headers : [];
+      const tRows = [];
+      if (headers.length) tRows.push(headers.map(h => ({ text: String(h), options: { bold: true, color: 'FFFFFF', fill: { color: ACC }, fontSize: 12 } })));
+      table.rows.forEach((r, ri) => {
+        tRows.push((Array.isArray(r) ? r : []).map((cell, ci) => ({ text: String(cell), options: { color: BODY, fontSize: 11.5, fill: { color: ri % 2 === 0 ? 'FFFFFF' : LIGHTBG }, bold: ci === 0 } })));
+      });
+      if (tRows.length) {
+        const rowH = 0.42;
+        c.addTable(tRows, { x: CX, y, w: CW, h: rowH * tRows.length, autoPage: false, border: { type: 'solid', color: 'E5E7EB', pt: 0.75 }, valign: 'middle', margin: 3 });
+        y += rowH * tRows.length + 0.2;
+      }
+    }
+
+    // Étapes numérotées (ex: méthode CROC) : puce-lettre colorée + titre + texte, en liste
+    const steps = (sl && Array.isArray(sl.steps)) ? sl.steps : [];
+    if (steps.length) {
+      const rh = 0.72;
+      steps.forEach(st => {
+        c.addShape('roundRect', { x: CX, y, w: 0.55, h: 0.55, rectRadius: 0.08, fill: { color: ACC } });
+        c.addText((st && st.letter ? st.letter : '\u2022').toString(), { x: CX, y, w: 0.55, h: 0.55, align: 'center', valign: 'middle', fontSize: 20, bold: true, color: 'FFFFFF' });
+        const tx = [];
+        if (st && st.title) tx.push({ text: String(st.title), options: { bold: true, color: DARK, fontSize: 13, breakLine: true } });
+        if (st && st.text) tx.push({ text: String(st.text), options: { color: BODY, fontSize: 11.5 } });
+        c.addText(tx, { x: CX + 0.72, y, w: CW - 0.72, h: rh, valign: 'top', lineSpacingMultiple: 1.05 });
+        y += rh + 0.12;
+      });
+      y += 0.05;
+    }
+
+    // Barres de comparaison (ex: objectif vs réalisé)
+    const bars = (sl && Array.isArray(sl.bars)) ? sl.bars : [];
+    if (bars.length) {
+      bars.forEach(b => {
+        const val = Number(b && b.value) || 0, max = Number(b && b.max) || 100;
+        const pct = Math.max(0, Math.min(1, max ? val / max : 0));
+        c.addText((b && b.label ? b.label : '').toString(), { x: CX, y, w: CW * 0.6, h: 0.32, fontSize: 13, bold: true, color: DARK });
+        const disp = (b && b.display ? b.display : Math.round(pct * 100) + ' %').toString();
+        c.addText(disp, { x: CX + CW - 1.6, y, w: 1.6, h: 0.32, align: 'right', fontSize: 13, bold: true, color: ACC });
+        y += 0.36;
+        c.addShape('roundRect', { x: CX, y, w: CW, h: 0.26, rectRadius: 0.05, fill: { color: 'E5E7EB' } });
+        c.addShape('roundRect', { x: CX, y, w: Math.max(0.12, CW * pct), h: 0.26, rectRadius: 0.05, fill: { color: ACC } });
+        y += 0.26 + 0.08;
+        if (b && b.note) { c.addText(String(b.note), { x: CX, y, w: CW, h: 0.25, fontSize: 10, color: MUT }); y += 0.28; }
+        y += 0.14;
+      });
+    }
+
+    // Planning / Gantt (déroulé dans le temps)
+    const timeline = (sl && sl.timeline && Array.isArray(sl.timeline.rows)) ? sl.timeline : null;
+    if (timeline) {
+      const periods = Array.isArray(timeline.periods) ? timeline.periods : [];
+      const labelW = CW * 0.28;
+      const trackW = CW - labelW;
+      const n = Math.max(1, periods.length || Math.max.apply(null, timeline.rows.map(r => (r && r.end) || 1)));
+      const colW = trackW / n;
+      if (periods.length) { periods.forEach((p, idx) => { c.addText(String(p), { x: CX + labelW + idx * colW, y, w: colW, h: 0.3, fontSize: 10.5, bold: true, color: MUT } ); }); y += 0.4; }
+      const rowH = 0.42;
+      timeline.rows.forEach(r => {
+        c.addText((r && r.label ? r.label : '').toString(), { x: CX, y: y + 0.03, w: labelW - 0.15, h: rowH, fontSize: 11, color: DARK, valign: 'middle' });
+        c.addShape('roundRect', { x: CX + labelW, y: y + 0.06, w: trackW, h: rowH - 0.14, rectRadius: 0.04, fill: { color: 'E8E8EA' } });
+        const s = Math.max(1, (r && r.start) || 1) - 1, e = Math.max(s + 1, (r && r.end) || s + 1);
+        c.addShape('roundRect', { x: CX + labelW + s * colW, y: y + 0.06, w: Math.max(colW * 0.6, (e - s) * colW), h: rowH - 0.14, rectRadius: 0.04, fill: { color: ACC } });
+        y += rowH + 0.08;
+      });
+      y += 0.1;
+    }
+
+    // Organigramme (boîtes hiérarchiques, la personne "highlight" ressort en couleur)
+    const org = (sl && sl.org && typeof sl.org === 'object') ? sl.org : null;
+    if (org) {
+      const boxW = 2.5, boxH = 0.8, gap = 0.28;
+      let oy = y;
+      if (org.top) {
+        const bx = CX + (CW - boxW) / 2;
+        c.addShape('roundRect', { x: bx, y: oy, w: boxW, h: boxH, rectRadius: 0.06, fill: { color: 'FFFFFF' }, line: { color: 'E5E7EB', width: 0.75 } });
+        c.addText([{ text: (org.top.name || '').toString(), options: { bold: true, color: DARK, fontSize: 12, breakLine: true } }, { text: (org.top.role || '').toString(), options: { color: MUT, fontSize: 10 } }], { x: bx, y: oy, w: boxW, h: boxH, valign: 'middle', align: 'center' });
+        oy += boxH + gap + 0.25;
+      }
+      const orows = Array.isArray(org.rows) ? org.rows : [];
+      orows.forEach(rowArr => {
+        const arr = Array.isArray(rowArr) ? rowArr : [];
+        const n2 = arr.length || 1;
+        const rowW = n2 * boxW + (n2 - 1) * gap;
+        let bx = CX + (CW - rowW) / 2;
+        arr.forEach(person => {
+          const hl = !!(person && person.highlight);
+          c.addShape('roundRect', { x: bx, y: oy, w: boxW, h: boxH, rectRadius: 0.06, fill: { color: hl ? ACC : 'FFFFFF' }, line: hl ? undefined : { color: 'E5E7EB', width: 0.75 } });
+          c.addText([{ text: (person && person.name ? person.name : '').toString(), options: { bold: true, color: hl ? 'FFFFFF' : DARK, fontSize: 12, breakLine: true } }, { text: (person && person.role ? person.role : '').toString(), options: { color: hl ? 'FFFFFF' : MUT, fontSize: 10 } }], { x: bx, y: oy, w: boxW, h: boxH, valign: 'middle', align: 'center' });
+          bx += boxW + gap;
+        });
+        oy += boxH + gap;
+      });
+      y = oy + 0.1;
+    }
+
+    if (hasImg) {
+      c.addImage({ data: img, x: 7.55, y: 1.05, w: 5.05, h: 5.3, sizing: { type: 'cover', w: 5.05, h: 5.3 }, shadow });
+    } else if (panel) {
+      // Panneau couleur avec une liste d'items (façon "canaux / cibles")
+      const px = 7.55, py = 1.05, pw = 5.05, ph = 5.3;
+      c.addShape('roundRect', { x: px, y: py, w: pw, h: ph, rectRadius: 0.08, fill: { color: ACC } });
+      let iy = py + 0.35;
+      const ptitle = (panel.title || '').toString();
+      if (ptitle) { c.addText(ptitle.toUpperCase(), { x: px + 0.35, y: iy, w: pw - 0.7, h: 0.5, fontSize: 13, bold: true, color: 'FFFFFF', charSpacing: 1 }); iy += 0.65; }
+      const items = Array.isArray(panel.items) ? panel.items : [];
+      const rowH = Math.max(0.55, Math.min(1.1, (ph - (iy - py) - 0.25) / Math.max(1, items.length)));
+      items.forEach(it => {
+        const label = (it && it.label) ? it.label : (typeof it === 'string' ? it : '');
+        const text = (it && it.text) ? it.text : '';
+        c.addShape('roundRect', { x: px + 0.35, y: iy + 0.03, w: 0.36, h: 0.36, rectRadius: 0.06, fill: { color: 'FFFFFF' } });
+        c.addText('\u2022', { x: px + 0.35, y: iy + 0.03, w: 0.36, h: 0.36, align: 'center', valign: 'middle', fontSize: 16, bold: true, color: ACC });
+        const tx = [];
+        if (label) tx.push({ text: label, options: { bold: true, color: 'FFFFFF', fontSize: 13, breakLine: true } });
+        if (text) tx.push({ text: text, options: { color: 'FFFFFF', fontSize: 11 } });
+        c.addText(tx, { x: px + 0.85, y: iy, w: pw - 1.2, h: rowH, valign: 'top', lineSpacingMultiple: 1.05 });
+        iy += rowH;
+      });
+    } else if (callout) {
+      // Gros chiffre clé mis en avant (façon "taux de retour")
+      const cx = 7.55, cy = 1.05, cw = 5.05, ch = 5.3;
+      c.addShape('roundRect', { x: cx, y: cy, w: cw, h: ch, rectRadius: 0.08, fill: { color: ACC } });
+      let iy = cy + 0.7;
+      const clabel = (callout.label || '').toString();
+      if (clabel) { c.addText(clabel.toUpperCase(), { x: cx + 0.4, y: iy, w: cw - 0.8, h: 0.5, fontSize: 13, bold: true, color: 'FFFFFF', charSpacing: 2, align: 'center' }); iy += 1.0; }
+      const cvalue = (callout.value || '').toString();
+      if (cvalue) { c.addText(cvalue, { x: cx + 0.3, y: iy, w: cw - 0.6, h: 1.6, fontSize: 58, bold: true, color: 'FFFFFF', align: 'center' }); iy += 1.8; }
+      const cnote = (callout.note || '').toString();
+      if (cnote) { c.addText(cnote, { x: cx + 0.4, y: iy, w: cw - 0.8, h: 0.8, fontSize: 12, italic: true, color: 'FFFFFF', align: 'center' }); }
+    }
 
     c.addShape('rect', { x: 0.9, y: 7.02, w: 0.18, h: 0.18, fill: { color: ACC } });
     c.addText(title, { x: 1.2, y: 6.98, w: 8, h: 0.3, fontSize: 10, color: MUT });
@@ -520,7 +700,7 @@ app.post('/api/chat', requireAuth, async (req, res) => {
 
   const tools = [{
     name: 'create_presentation',
-    description: "Génère un vrai fichier PowerPoint (.pptx) au design professionnel façon Canva. Utilise cet outil UNIQUEMENT quand l'utilisateur veut créer/faire/générer une présentation, un diaporama, un PowerPoint ou des slides (sinon réponds normalement). VARIE la structure des slides pour un rendu pro et qualitatif : n'utilise pas partout de simples puces. Selon la slide, combine : une phrase d'accroche (lead), une ligne secondaire (subtext), un court paragraphe (body), des puces (bullets), des badges de catégories (badges), ou des chiffres clés (stats). Choisis une couleur de marque (accent) cohérente avec le sujet, un sous-titre, et pour CHAQUE slide un label de section + des mots-clés d'image EN ANGLAIS. Contenu riche mais lisible (évite de tout mettre sur une slide). 6 à 10 slides.",
+    description: "Génère un vrai fichier PowerPoint (.pptx) au design professionnel façon Canva/consultant, avec une grande variété de mises en page. Utilise cet outil UNIQUEMENT quand l'utilisateur veut créer/faire/générer une présentation, un diaporama, un PowerPoint ou des slides (sinon réponds normalement). C'est ton point fort : sois ambitieux et VARIE OBLIGATOIREMENT la structure. N'utilise JAMAIS de simples puces sur toutes les slides. Blocs disponibles par slide (combine-les selon le contenu, choisis 1 à 3 blocs visuels par slide) : lead/subtext/body (texte d'intro), bullets (puces courtes), cards (grille de 3 à 6 cartes icône+titre+texte : offre, produits, atouts, outils), panel (encart couleur à droite avec une liste de points : canaux, cibles, critères, objectifs), table (tableau à en-tête colorée : indicateurs, résultats chiffrés), callout (immense chiffre mis en avant : taux, résultat clé), stats (2-3 chiffres côte à côte), badges (étiquette + description), steps (étapes numérotées/lettrées en liste verticale : méthode, processus, script d'appel), bars (barres de comparaison objectif vs réalisé avec pourcentage), timeline (planning/Gantt sur plusieurs périodes), org (organigramme avec une personne 'top' et des lignes de boîtes, mets highlight:true sur la personne à mettre en avant). Deux types de slides PLEINE PAGE pour rythmer une présentation de plus de 6 slides : divider (page de transition colorée avec icône+titre, pour ouvrir une nouvelle partie) et quote (page colorée avec une accroche/citation forte dans un encart blanc, pour marquer les esprits). Une slide de contenu classique ne doit JAMAIS rester avec juste un titre et 3 lignes : enrichis-la toujours d'au moins un bloc visuel. N'utilise pas image_query sur une slide qui a déjà panel, callout, divider ou quote. Choisis une couleur de marque (accent) cohérente avec le sujet. 7 à 14 slides selon la richesse du sujet, en alternant les types de blocs d'une slide à l'autre pour que ça ne se ressemble jamais deux fois de suite.",
     input_schema: {
       type: 'object',
       properties: {
@@ -544,8 +724,20 @@ app.post('/api/chat', requireAuth, async (req, res) => {
               body: { type: 'string', description: 'Court paragraphe explicatif (optionnel, 1-3 phrases)' },
               bullets: { type: 'array', items: { type: 'string' }, description: 'Puces courtes (optionnel)' },
               badges: { type: 'array', description: 'Catégories façon étiquettes (optionnel)', items: { type: 'object', properties: { label: { type: 'string', description: 'Texte court de l\'étiquette (ex: B2B)' }, text: { type: 'string', description: 'Description à droite de l\'étiquette' } }, required: ['label', 'text'] } },
-              stats: { type: 'array', description: 'Chiffres clés (optionnel)', items: { type: 'object', properties: { value: { type: 'string', description: 'Le chiffre (ex: "2 Md€")' }, label: { type: 'string', description: 'Ce que représente le chiffre' } }, required: ['value', 'label'] } },
-              image_query: { type: 'string', description: "Mots-clés EN ANGLAIS pour la photo de cette slide" }
+              stats: { type: 'array', description: 'Chiffres clés côte à côte, 2 ou 3 max (optionnel)', items: { type: 'object', properties: { value: { type: 'string', description: 'Le chiffre (ex: "2 Md€")' }, label: { type: 'string', description: 'Ce que représente le chiffre' } }, required: ['value', 'label'] } },
+              cards: { type: 'array', description: 'Grille de cartes avec icône (3 à 6 cartes, idéal pour une offre, des familles de produits, des atouts, des outils utilisés)', items: { type: 'object', properties: { icon: { type: 'string', description: 'Un seul emoji représentatif (ex: 🔧, 📦, ⚡)' }, title: { type: 'string' }, text: { type: 'string', description: 'Description courte (1 phrase)' } }, required: ['title', 'text'] } },
+              panel: { type: 'object', description: "Encart de couleur à droite de la slide avec une liste de points (remplace image_query). Idéal pour les canaux, les cibles, les critères, les objectifs.", properties: { title: { type: 'string', description: 'Titre de l\'encart, en majuscules' }, items: { type: 'array', items: { type: 'object', properties: { label: { type: 'string', description: 'Titre court du point' }, text: { type: 'string', description: 'Détail du point' } }, required: ['label'] } } }, required: ['items'] },
+              table: { type: 'object', description: "Tableau avec en-tête colorée, idéal pour des indicateurs/résultats chiffrés.", properties: { headers: { type: 'array', items: { type: 'string' }, description: 'Titres des colonnes (optionnel)' }, rows: { type: 'array', items: { type: 'array', items: { type: 'string' } }, description: 'Lignes du tableau, chaque ligne étant un tableau de cellules texte' } }, required: ['rows'] },
+              callout: { type: 'object', description: "Encart de couleur à droite avec un immense chiffre clé mis en avant (remplace image_query et panel). Idéal pour un taux de conversion, un résultat marquant.", properties: { label: { type: 'string', description: 'Petit texte au-dessus du chiffre (ex: "TAUX DE RETOUR")' }, value: { type: 'string', description: 'Le chiffre en grand (ex: "26,7 %")' }, note: { type: 'string', description: 'Petite note en dessous (optionnel)' } }, required: ['value'] },
+              steps: { type: 'array', description: "Étapes numérotées/lettrées en liste verticale (méthode, processus, script). Ex: méthode CROC avec les lettres C, R, O, C.", items: { type: 'object', properties: { letter: { type: 'string', description: 'Lettre ou numéro affiché dans le badge coloré (ex: "C", "1")' }, title: { type: 'string' }, text: { type: 'string' } }, required: ['title'] } },
+              bars: { type: 'array', description: "Barres de comparaison horizontales (objectif vs réalisé, avec pourcentage).", items: { type: 'object', properties: { label: { type: 'string' }, value: { type: 'number', description: 'Valeur atteinte' }, max: { type: 'number', description: 'Valeur de référence (100 = pourcentage direct)' }, display: { type: 'string', description: 'Texte affiché à droite (ex: "120 %")' }, note: { type: 'string', description: 'Petite note sous la barre (ex: "12/10")' } }, required: ['label', 'value'] } },
+              timeline: { type: 'object', description: "Planning / diagramme de Gantt sur plusieurs périodes.", properties: { periods: { type: 'array', items: { type: 'string' }, description: 'Noms des colonnes de temps (ex: ["Semaine 1","Semaine 2","Semaine 3"])' }, rows: { type: 'array', items: { type: 'object', properties: { label: { type: 'string' }, start: { type: 'number', description: 'Période de début (1 = première période)' }, end: { type: 'number', description: 'Période de fin (incluse)' } }, required: ['label', 'start', 'end'] } } }, required: ['rows'] },
+              org: { type: 'object', description: "Organigramme : une personne au sommet puis des lignes de boîtes en dessous.", properties: { top: { type: 'object', properties: { name: { type: 'string' }, role: { type: 'string' } } }, rows: { type: 'array', description: 'Chaque élément est une ligne (un tableau de personnes affichées côte à côte)', items: { type: 'array', items: { type: 'object', properties: { name: { type: 'string' }, role: { type: 'string' }, highlight: { type: 'boolean', description: 'true pour faire ressortir cette personne en couleur' } }, required: ['name'] } } } }, required: ['rows'] },
+              divider: { type: 'boolean', description: "Mets true pour que cette slide soit une page de transition PLEINE COULEUR (icône + titre + sous-titre centrés), sans autre contenu. Utilise title, subtext, icon (un emoji)." },
+              icon: { type: 'string', description: "Emoji utilisé par les slides divider et quote" },
+              quote: { type: 'string', description: "Si rempli, cette slide devient une page PLEINE COULEUR avec cette accroche/citation forte affichée en grand dans un encart blanc. Utilise aussi title, label, icon, note." },
+              note: { type: 'string', description: "Petite note italique en bas de la slide quote (optionnel)" },
+              image_query: { type: 'string', description: "Mots-clés EN ANGLAIS pour la photo de cette slide (à éviter si panel, callout, divider ou quote est utilisé)" }
             },
             required: ['title']
           }

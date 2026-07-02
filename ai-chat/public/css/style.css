@@ -281,3 +281,6 @@ html{-webkit-text-size-adjust:100%}
 .corr-loading{color:var(--dim);text-align:center;padding:10px}
 .corr-err{color:var(--danger)}
 @media(max-width:760px){#corr-input{font-size:16px}}
+
+/* Correctif universel : l’attribut hidden cache toujours (overlays vocal, aperçu fichier, etc.) */
+[hidden]{display:none !important}

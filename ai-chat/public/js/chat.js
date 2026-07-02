@@ -160,6 +160,7 @@ const TEXT_EXT = ['.txt','.md','.csv','.json','.js','.ts','.py','.html','.css','
 function classify(f){ const t=f.type||'', n=(f.name||'').toLowerCase();
   if(t.startsWith('image/')) return 'image';
   if(t==='application/pdf'||n.endsWith('.pdf')) return 'pdf';
+  if(n.endsWith('.pptx')||t==='application/vnd.openxmlformats-officedocument.presentationml.presentation') return 'pptx';
   if(t.startsWith('text/')||TEXT_EXT.some(e=>n.endsWith(e))) return 'text';
   return 'other'; }
 attach.addEventListener('click', () => fileInput.click());
@@ -167,14 +168,14 @@ fileInput.addEventListener('change', () => {
   const f = fileInput.files[0]; if (!f) return;
   if (f.size > 10*1024*1024) { alert('Fichier trop lourd (max 10 Mo).'); fileInput.value=''; return; }
   const kind = classify(f);
-  if (kind==='other'){ alert("Ce type de fichier ne peut pas être lu par l'IA.\nFormats acceptés : images, PDF, textes/code."); fileInput.value=''; return; }
+  if (kind==='other'){ alert("Ce type de fichier ne peut pas être lu par l'IA.\nFormats acceptés : images, PDF, PowerPoint (.pptx), textes/code."); fileInput.value=''; return; }
   const reader = new FileReader();
   if (kind==='text'){ reader.onload=()=>{ pendingFile={kind,text:reader.result,name:f.name}; showPreview(kind,null,f.name); }; reader.readAsText(f); }
   else { reader.onload=()=>{ const url=reader.result; pendingFile={kind,media_type:f.type,data:url.split(',')[1],name:f.name,url}; showPreview(kind, kind==='image'?url:null, f.name); }; reader.readAsDataURL(f); }
 });
 function showPreview(kind,url,name){
   if(kind==='image'){ previewImg.src=url; previewImg.hidden=false; previewChip.hidden=true; }
-  else { $('preview-icon').textContent = kind==='pdf'?'📄':'📎'; $('preview-name').textContent=name; previewChip.hidden=false; previewImg.hidden=true; }
+  else { $('preview-icon').textContent = kind==='pdf'?'📄':(kind==='pptx'?'📊':'📎'); $('preview-name').textContent=name; previewChip.hidden=false; previewImg.hidden=true; }
   preview.hidden=false;
 }
 $('preview-remove').addEventListener('click', clearFile);

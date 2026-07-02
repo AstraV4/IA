@@ -390,6 +390,31 @@ async function fetchImage(query) {
   } catch (e) { return null; }
 }
 
+// Quatre styles visuels bien distincts (couleurs, coins arrondis ou carrés, police, ombres)
+const PPTX_THEMES = {
+  canva: { bg: 'F5F5F6', card: 'FFFFFF', line: 'E5E7EB', dark: '1F2328', body: '3C4149', mut: '9AA0A6', soft: '6B7280', radius: 0.08, shadow: true, font: 'Arial' },
+  dark: { bg: '16161D', card: '212129', line: '32323C', dark: 'F5F5F7', body: 'C9C9D2', mut: '8B8B96', soft: 'A6A6B0', radius: 0.08, shadow: false, font: 'Arial' },
+  sharp: { bg: 'FFFFFF', card: 'F7F7F7', line: 'D6D6D6', dark: '111111', body: '333333', mut: '8A8A8A', soft: '5C5C5C', radius: 0, shadow: false, font: 'Georgia' },
+  bold: { bg: 'FFFFFF', card: 'FFFFFF', line: 'ECECEC', dark: '0A0A0A', body: '2B2B2B', mut: '9A9A9A', soft: '5C5C5C', radius: 0.18, shadow: true, font: 'Verdana' }
+};
+
+// Lit un .pptx envoyé par l'utilisateur et en extrait le texte, slide par slide
+async function extractPptxText(buffer) {
+  const JSZip = require('jszip');
+  const zip = await JSZip.loadAsync(buffer);
+  const names = Object.keys(zip.files)
+    .filter(n => /^ppt\/slides\/slide\d+\.xml$/.test(n))
+    .sort((a, b) => (parseInt(a.match(/\d+/)[0], 10) - parseInt(b.match(/\d+/)[0], 10)));
+  const slides = [];
+  for (const name of names) {
+    const xml = await zip.files[name].async('string');
+    const texts = [...xml.matchAll(/<a:t>([^<]*)<\/a:t>/g)].map(m => m[1]
+      .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&apos;/g, "'").replace(/&quot;/g, '"'));
+    slides.push(texts.join(' ').trim());
+  }
+  return slides;
+}
+
 // Construit un .pptx façon "Canva" (2 colonnes, photos, couleur de marque) à partir de la spec
 async function buildPptx(spec) {
   const pptxgen = require('pptxgenjs');
@@ -397,14 +422,17 @@ async function buildPptx(spec) {
   pres.layout = 'LAYOUT_WIDE';
   const ACC = (spec && typeof spec.accent === 'string' && /^[0-9a-fA-F]{6}$/.test(spec.accent)) ? spec.accent.toUpperCase() : 'C15F3C';
   const ACCD = darken(ACC, 0.30);
-  const DARK = '1F2328', BODY = '3C4149', MUT = '9AA0A6', LIGHTBG = 'F5F5F6', PLACE = 'E7E4DE', SOFT = '6B7280';
+  const TH = PPTX_THEMES[spec && spec.theme] || PPTX_THEMES.canva;
+  const DARK = TH.dark, BODY = TH.body, MUT = TH.mut, LIGHTBG = TH.bg, SOFT = TH.soft;
+  const CARD = TH.card, LINE = TH.line, RADIUS = TH.radius, FONT = TH.font;
+  pres.theme = { headFontFace: FONT, bodyFontFace: FONT };
   const title = (spec && spec.title ? spec.title : 'Présentation').toString();
   const subtitle = (spec && spec.subtitle ? spec.subtitle : '').toString();
   const session = (spec && spec.session ? spec.session : '').toString();
   const presenter = (spec && spec.presenter ? spec.presenter : '').toString();
   const presenterRole = (spec && spec.presenter_role ? spec.presenter_role : '').toString();
   const slides = (spec && Array.isArray(spec.slides)) ? spec.slides : [];
-  const shadow = { type: 'outer', blur: 10, offset: 3, angle: 90, color: '000000', opacity: 0.22 };
+  const shadow = TH.shadow ? { type: 'outer', blur: 10, offset: 3, angle: 90, color: '000000', opacity: 0.22 } : undefined;
 
   // Photos en parallèle (inutile si la slide a déjà un panneau couleur, un chiffre clé, ou une slide spéciale)
   const [titleImg, slideImgs] = await Promise.all([
@@ -495,8 +523,8 @@ async function buildPptx(spec) {
         const col = idx % cols, row = Math.floor(idx / cols);
         const cx = CX + col * (cw + gap);
         const cy = y + row * (ch + gap);
-        c.addShape('roundRect', { x: cx, y: cy, w: cw, h: ch, rectRadius: 0.08, fill: { color: 'FFFFFF' }, line: { color: 'E5E7EB', width: 0.75 } });
-        c.addShape('roundRect', { x: cx + 0.2, y: cy + 0.2, w: 0.5, h: 0.5, rectRadius: 0.08, fill: { color: ACC } });
+        c.addShape('roundRect', { x: cx, y: cy, w: cw, h: ch, rectRadius: RADIUS, fill: { color: CARD }, line: { color: LINE, width: 0.75 } });
+        c.addShape('roundRect', { x: cx + 0.2, y: cy + 0.2, w: 0.5, h: 0.5, rectRadius: RADIUS, fill: { color: ACC } });
         c.addText((cd && cd.icon ? cd.icon : '\u2605').toString(), { x: cx + 0.2, y: cy + 0.2, w: 0.5, h: 0.5, align: 'center', valign: 'middle', fontSize: 20, color: 'FFFFFF' });
         c.addText((cd && cd.title ? cd.title : '').toString(), { x: cx + 0.85, y: cy + 0.2, w: cw - 1.05, h: 0.5, fontSize: 13, bold: true, color: DARK, valign: 'middle' });
         c.addText((cd && cd.text ? cd.text : '').toString(), { x: cx + 0.2, y: cy + 0.78, w: cw - 0.4, h: ch - 0.95, fontSize: 10.5, color: BODY, valign: 'top', lineSpacingMultiple: 1.08 });
@@ -516,7 +544,7 @@ async function buildPptx(spec) {
       });
       if (tRows.length) {
         const rowH = 0.42;
-        c.addTable(tRows, { x: CX, y, w: CW, h: rowH * tRows.length, autoPage: false, border: { type: 'solid', color: 'E5E7EB', pt: 0.75 }, valign: 'middle', margin: 3 });
+        c.addTable(tRows, { x: CX, y, w: CW, h: rowH * tRows.length, autoPage: false, border: { type: 'solid', color: LINE, pt: 0.75 }, valign: 'middle', margin: 3, fontFace: FONT });
         y += rowH * tRows.length + 0.2;
       }
     }
@@ -526,7 +554,7 @@ async function buildPptx(spec) {
     if (steps.length) {
       const rh = 0.72;
       steps.forEach(st => {
-        c.addShape('roundRect', { x: CX, y, w: 0.55, h: 0.55, rectRadius: 0.08, fill: { color: ACC } });
+        c.addShape('roundRect', { x: CX, y, w: 0.55, h: 0.55, rectRadius: RADIUS, fill: { color: ACC } });
         c.addText((st && st.letter ? st.letter : '\u2022').toString(), { x: CX, y, w: 0.55, h: 0.55, align: 'center', valign: 'middle', fontSize: 20, bold: true, color: 'FFFFFF' });
         const tx = [];
         if (st && st.title) tx.push({ text: String(st.title), options: { bold: true, color: DARK, fontSize: 13, breakLine: true } });
@@ -547,7 +575,7 @@ async function buildPptx(spec) {
         const disp = (b && b.display ? b.display : Math.round(pct * 100) + ' %').toString();
         c.addText(disp, { x: CX + CW - 1.6, y, w: 1.6, h: 0.32, align: 'right', fontSize: 13, bold: true, color: ACC });
         y += 0.36;
-        c.addShape('roundRect', { x: CX, y, w: CW, h: 0.26, rectRadius: 0.05, fill: { color: 'E5E7EB' } });
+        c.addShape('roundRect', { x: CX, y, w: CW, h: 0.26, rectRadius: 0.05, fill: { color: LINE } });
         c.addShape('roundRect', { x: CX, y, w: Math.max(0.12, CW * pct), h: 0.26, rectRadius: 0.05, fill: { color: ACC } });
         y += 0.26 + 0.08;
         if (b && b.note) { c.addText(String(b.note), { x: CX, y, w: CW, h: 0.25, fontSize: 10, color: MUT }); y += 0.28; }
@@ -582,7 +610,7 @@ async function buildPptx(spec) {
       let oy = y;
       if (org.top) {
         const bx = CX + (CW - boxW) / 2;
-        c.addShape('roundRect', { x: bx, y: oy, w: boxW, h: boxH, rectRadius: 0.06, fill: { color: 'FFFFFF' }, line: { color: 'E5E7EB', width: 0.75 } });
+        c.addShape('roundRect', { x: bx, y: oy, w: boxW, h: boxH, rectRadius: RADIUS * 0.75, fill: { color: CARD }, line: { color: LINE, width: 0.75 } });
         c.addText([{ text: (org.top.name || '').toString(), options: { bold: true, color: DARK, fontSize: 12, breakLine: true } }, { text: (org.top.role || '').toString(), options: { color: MUT, fontSize: 10 } }], { x: bx, y: oy, w: boxW, h: boxH, valign: 'middle', align: 'center' });
         oy += boxH + gap + 0.25;
       }
@@ -594,7 +622,7 @@ async function buildPptx(spec) {
         let bx = CX + (CW - rowW) / 2;
         arr.forEach(person => {
           const hl = !!(person && person.highlight);
-          c.addShape('roundRect', { x: bx, y: oy, w: boxW, h: boxH, rectRadius: 0.06, fill: { color: hl ? ACC : 'FFFFFF' }, line: hl ? undefined : { color: 'E5E7EB', width: 0.75 } });
+          c.addShape('roundRect', { x: bx, y: oy, w: boxW, h: boxH, rectRadius: RADIUS * 0.75, fill: { color: hl ? ACC : CARD }, line: hl ? undefined : { color: LINE, width: 0.75 } });
           c.addText([{ text: (person && person.name ? person.name : '').toString(), options: { bold: true, color: hl ? 'FFFFFF' : DARK, fontSize: 12, breakLine: true } }, { text: (person && person.role ? person.role : '').toString(), options: { color: hl ? 'FFFFFF' : MUT, fontSize: 10 } }], { x: bx, y: oy, w: boxW, h: boxH, valign: 'middle', align: 'center' });
           bx += boxW + gap;
         });
@@ -608,7 +636,7 @@ async function buildPptx(spec) {
     } else if (panel) {
       // Panneau couleur avec une liste d'items (façon "canaux / cibles")
       const px = 7.55, py = 1.05, pw = 5.05, ph = 5.3;
-      c.addShape('roundRect', { x: px, y: py, w: pw, h: ph, rectRadius: 0.08, fill: { color: ACC } });
+      c.addShape('roundRect', { x: px, y: py, w: pw, h: ph, rectRadius: RADIUS, fill: { color: ACC } });
       let iy = py + 0.35;
       const ptitle = (panel.title || '').toString();
       if (ptitle) { c.addText(ptitle.toUpperCase(), { x: px + 0.35, y: iy, w: pw - 0.7, h: 0.5, fontSize: 13, bold: true, color: 'FFFFFF', charSpacing: 1 }); iy += 0.65; }
@@ -628,7 +656,7 @@ async function buildPptx(spec) {
     } else if (callout) {
       // Gros chiffre clé mis en avant (façon "taux de retour")
       const cx = 7.55, cy = 1.05, cw = 5.05, ch = 5.3;
-      c.addShape('roundRect', { x: cx, y: cy, w: cw, h: ch, rectRadius: 0.08, fill: { color: ACC } });
+      c.addShape('roundRect', { x: cx, y: cy, w: cw, h: ch, rectRadius: RADIUS, fill: { color: ACC } });
       let iy = cy + 0.7;
       const clabel = (callout.label || '').toString();
       if (clabel) { c.addText(clabel.toUpperCase(), { x: cx + 0.4, y: iy, w: cw - 0.8, h: 0.5, fontSize: 13, bold: true, color: 'FFFFFF', charSpacing: 2, align: 'center' }); iy += 1.0; }
@@ -664,6 +692,7 @@ app.post('/api/chat', requireAuth, async (req, res) => {
   if (file && file.kind === 'image' && IMG.includes(file.media_type) && file.data) fileKind = 'image';
   else if (file && file.kind === 'pdf' && file.data) fileKind = 'pdf';
   else if (file && file.kind === 'text' && typeof file.text === 'string') fileKind = 'text';
+  else if (file && file.kind === 'pptx' && file.data) fileKind = 'pptx';
   if (!text && !fileKind) return res.status(400).json({ error: 'empty' });
   if (!ANTHROPIC_API_KEY) return res.status(500).json({ error: 'config', message: "L'IA n'est pas configurée (clé API manquante)." });
 
@@ -688,6 +717,16 @@ app.post('/api/chat', requireAuth, async (req, res) => {
   } else if (fileKind === 'text') {
     const nm = (file.name || 'fichier').slice(0, 120);
     textForAI = 'Fichier joint "' + nm + '" :\n\n' + file.text.slice(0, 100000) + (text ? '\n\n' + text : '');
+  } else if (fileKind === 'pptx') {
+    const nm = (file.name || 'presentation.pptx').slice(0, 120);
+    try {
+      const buf = Buffer.from(file.data, 'base64');
+      const slides = await extractPptxText(buf);
+      const body = slides.map((t, i) => 'Slide ' + (i + 1) + ': ' + (t || '(vide)')).join('\n');
+      textForAI = 'Contenu texte du PowerPoint joint "' + nm + '" (' + slides.length + ' slides, à reprendre avec le même nombre de slides et la même structure sauf indication contraire) :\n\n' + body.slice(0, 100000) + (text ? '\n\n' + text : '');
+    } catch (e) {
+      textForAI = 'Le fichier PowerPoint joint "' + nm + '" n\'a pas pu être lu (format inattendu).' + (text ? '\n\n' + text : '');
+    }
   }
   let userContent;
   if (blocks.length) {
@@ -700,13 +739,14 @@ app.post('/api/chat', requireAuth, async (req, res) => {
 
   const tools = [{
     name: 'create_presentation',
-    description: "Génère un vrai fichier PowerPoint (.pptx) au design professionnel façon Canva/consultant, avec une grande variété de mises en page. Utilise cet outil UNIQUEMENT quand l'utilisateur veut créer/faire/générer une présentation, un diaporama, un PowerPoint ou des slides (sinon réponds normalement). C'est ton point fort : sois ambitieux et VARIE OBLIGATOIREMENT la structure. N'utilise JAMAIS de simples puces sur toutes les slides. Blocs disponibles par slide (combine-les selon le contenu, choisis 1 à 3 blocs visuels par slide) : lead/subtext/body (texte d'intro), bullets (puces courtes), cards (grille de 3 à 6 cartes icône+titre+texte : offre, produits, atouts, outils), panel (encart couleur à droite avec une liste de points : canaux, cibles, critères, objectifs), table (tableau à en-tête colorée : indicateurs, résultats chiffrés), callout (immense chiffre mis en avant : taux, résultat clé), stats (2-3 chiffres côte à côte), badges (étiquette + description), steps (étapes numérotées/lettrées en liste verticale : méthode, processus, script d'appel), bars (barres de comparaison objectif vs réalisé avec pourcentage), timeline (planning/Gantt sur plusieurs périodes), org (organigramme avec une personne 'top' et des lignes de boîtes, mets highlight:true sur la personne à mettre en avant). Deux types de slides PLEINE PAGE pour rythmer une présentation de plus de 6 slides : divider (page de transition colorée avec icône+titre, pour ouvrir une nouvelle partie) et quote (page colorée avec une accroche/citation forte dans un encart blanc, pour marquer les esprits). Une slide de contenu classique ne doit JAMAIS rester avec juste un titre et 3 lignes : enrichis-la toujours d'au moins un bloc visuel. N'utilise pas image_query sur une slide qui a déjà panel, callout, divider ou quote. Choisis une couleur de marque (accent) cohérente avec le sujet. 7 à 14 slides selon la richesse du sujet, en alternant les types de blocs d'une slide à l'autre pour que ça ne se ressemble jamais deux fois de suite.",
+    description: "Génère un vrai fichier PowerPoint (.pptx) au design professionnel façon Canva/consultant, avec une grande variété de mises en page. Utilise cet outil UNIQUEMENT quand l'utilisateur veut créer/faire/générer une présentation, un diaporama, un PowerPoint ou des slides (sinon réponds normalement). C'est ton point fort : sois ambitieux et VARIE OBLIGATOIREMENT la structure. N'utilise JAMAIS de simples puces sur toutes les slides. Blocs disponibles par slide (combine-les selon le contenu, choisis 1 à 3 blocs visuels par slide) : lead/subtext/body (texte d'intro), bullets (puces courtes), cards (grille de 3 à 6 cartes icône+titre+texte : offre, produits, atouts, outils), panel (encart couleur à droite avec une liste de points : canaux, cibles, critères, objectifs), table (tableau à en-tête colorée : indicateurs, résultats chiffrés), callout (immense chiffre mis en avant : taux, résultat clé), stats (2-3 chiffres côte à côte), badges (étiquette + description), steps (étapes numérotées/lettrées en liste verticale : méthode, processus, script d'appel), bars (barres de comparaison objectif vs réalisé avec pourcentage), timeline (planning/Gantt sur plusieurs périodes), org (organigramme avec une personne 'top' et des lignes de boîtes, mets highlight:true sur la personne à mettre en avant). Deux types de slides PLEINE PAGE pour rythmer une présentation de plus de 6 slides : divider (page de transition colorée avec icône+titre, pour ouvrir une nouvelle partie) et quote (page colorée avec une accroche/citation forte dans un encart blanc, pour marquer les esprits). Une slide de contenu classique ne doit JAMAIS rester avec juste un titre et 3 lignes : enrichis-la toujours d'au moins un bloc visuel. N'utilise pas image_query sur une slide qui a déjà panel, callout, divider ou quote. Choisis une couleur de marque (accent) cohérente avec le sujet. 7 à 14 slides selon la richesse du sujet, en alternant les types de blocs d'une slide à l'autre pour que ça ne se ressemble jamais deux fois de suite. Utilise le paramètre theme pour changer complètement le style visuel (couleurs de fond, formes, police) si l'utilisateur n'est pas content du rendu précédent et demande autre chose. Si un fichier PowerPoint existant a été joint au message (tu vois son contenu texte slide par slide), et que l'utilisateur veut l'adapter/le reprendre pour un autre sujet ou une autre entreprise : garde EXACTEMENT le même nombre de slides et la même structure logique (mêmes labels, même ordre, mêmes types d'information), en ne changeant que les informations demandées (nom d'entreprise, chiffres, etc.). Choisis des blocs visuels (cards/panel/table/etc.) cohérents avec ce que chaque slide du fichier original contenait.",
     input_schema: {
       type: 'object',
       properties: {
         title: { type: 'string', description: 'Titre de la présentation' },
         subtitle: { type: 'string', description: 'Sous-titre / accroche (slide de titre)' },
         accent: { type: 'string', description: 'Couleur de marque en hexa SANS # (ex: C0392B). Cohérente avec le sujet.' },
+        theme: { type: 'string', enum: ['canva', 'dark', 'sharp', 'bold'], description: "Style visuel global. 'canva' = clair et arrondi (défaut, polyvalent). 'dark' = fond sombre élégant. 'sharp' = sobre, coins carrés, police sérif (Georgia), look éditorial/corporate strict. 'bold' = coins très arrondis, police Verdana, look impactant/moderne. Garde 'canva' par défaut. Si l'utilisateur dit qu'il n'aime pas le rendu et demande de refaire avec un style/écriture/forme différente, choisis un theme DIFFÉRENT de celui utilisé dans le message précédent." },
         image_query: { type: 'string', description: "Mots-clés EN ANGLAIS pour la photo de titre" },
         session: { type: 'string', description: 'Petit texte en bas à gauche de la slide de titre (ex: "Session 2027")' },
         presenter: { type: 'string', description: "Nom de l'auteur (optionnel, slide de titre)" },
@@ -769,6 +809,7 @@ app.post('/api/chat', requireAuth, async (req, res) => {
     if (fileKind === 'image') marker = '🖼️ [image]';
     else if (fileKind === 'pdf') marker = '📄 [' + (file.name || 'PDF') + ']';
     else if (fileKind === 'text') marker = '📎 [' + (file.name || 'fichier') + ']';
+    else if (fileKind === 'pptx') marker = '📊 [' + (file.name || 'PowerPoint') + ']';
     const storedUser = marker ? (text ? text + '\n' + marker : marker) : text;
 
     // L'IA a-t-elle décidé de créer une présentation ?

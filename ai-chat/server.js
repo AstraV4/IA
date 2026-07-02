@@ -327,6 +327,12 @@ app.post('/api/correct', requireAuth, async (req, res) => {
   } catch (e) { console.error('CORRECT', e); res.status(500).json({ message: "Erreur de connexion à l'IA." }); }
 });
 
+app.get('/account', requireAuth, (req, res) => {
+  const u = res.locals.me;
+  ensurePeriod(u);
+  res.render('account', { used: u.msg_used, limit: limitFor(u.plan), plan: u.plan, pw: req.query.pw || null });
+});
+
 app.post('/account/password', requireAuth, async (req, res) => {
   try {
     const u = res.locals.me;
@@ -633,7 +639,7 @@ function computeStats() {
     days.push({ label: ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'][d.getDay()], n });
   }
   const maxDay = Math.max(1, ...days.map(d => d.n));
-  return { users, pro, verified, convs, msgsTotal, questions, msgsToday, msgs7, newUsers7, active7, days, maxDay };
+  return { model: MODEL, users, pro, verified, convs, msgsTotal, questions, msgsToday, msgs7, newUsers7, active7, days, maxDay };
 }
 
 app.get('/admin', requireAuth, requireAdmin, (req, res) => {
@@ -662,7 +668,7 @@ app.post('/admin/setplan', requireAuth, requireAdmin, (req, res) => {
 
 // ===================== DIAGNOSTIC =====================
 app.get('/health', (req, res) => {
-  const info = { ok: true, dataDir: DATA_DIR, node: process.version, hasApiKey: !!ANTHROPIC_API_KEY };
+  const info = { ok: true, model: MODEL, dataDir: DATA_DIR, node: process.version, hasApiKey: !!ANTHROPIC_API_KEY, mailEnabled: MAIL_ENABLED };
   try {
     db.prepare('CREATE TABLE IF NOT EXISTS _health (x INTEGER)').run();
     db.prepare('INSERT INTO _health (x) VALUES (1)').run();

@@ -34,6 +34,14 @@
   <h2>🛠️ Panneau admin</h2>
   <p style="color:var(--dim);margin-top:6px">Quand quelqu'un t'ajoute sur Discord (<%= discordHandle %>), tu peux le passer en Pro ou réinitialiser son mot de passe ici.</p>
 
+  <div style="margin:14px 0;padding:12px 16px;background:var(--panel);border:1px solid var(--border);border-radius:12px;font-size:.95rem">
+    🤖 Modèle actuel : <b style="color:var(--accent)"><%= stats.model %></b>
+    <% if (/haiku/i.test(stats.model)) { %><span style="margin-left:8px;color:var(--dim)">— rapide et économique (Haiku)</span>
+    <% } else if (/sonnet/i.test(stats.model)) { %><span style="margin-left:8px;color:#2e7d50;font-weight:600">— équilibré et intelligent (Sonnet) ✅</span>
+    <% } else if (/opus/i.test(stats.model)) { %><span style="margin-left:8px;color:var(--accent);font-weight:600">— le plus puissant (Opus)</span>
+    <% } %>
+  </div>
+
   <div class="stat-grid">
     <div class="stat"><div class="stat-n"><%= stats.users %></div><div class="stat-l">Utilisateurs</div></div>
     <div class="stat"><div class="stat-n"><%= stats.active7 %></div><div class="stat-l">Actifs (7 jours)</div></div>

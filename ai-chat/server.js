@@ -415,6 +415,55 @@ async function extractPptxText(buffer) {
   return slides;
 }
 
+function xmlDecode(s) { return s.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&apos;/g, "'").replace(/&quot;/g, '"'); }
+function xmlEncode(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/'/g, '&apos;').replace(/"/g, '&quot;'); }
+function pptxParagraphs(xml) { return xml.match(/<a:p>[\s\S]*?<\/a:p>/g) || []; }
+function pptxParagraphText(pXml) { return [...pXml.matchAll(/<a:t>([^<]*)<\/a:t>/g)].map(m => xmlDecode(m[1])).join('').trim(); }
+
+// Extrait tous les paragraphes de texte non-vides d'un .pptx joint, dans l'ordre (pour un remplissage fidèle du modèle)
+async function extractPptxParagraphs(buffer) {
+  const JSZip = require('jszip');
+  const zip = await JSZip.loadAsync(buffer);
+  const names = Object.keys(zip.files)
+    .filter(n => /^ppt\/slides\/slide\d+\.xml$/.test(n))
+    .sort((a, b) => (parseInt(a.match(/\d+/)[0], 10) - parseInt(b.match(/\d+/)[0], 10)));
+  const items = [];
+  for (let i = 0; i < names.length; i++) {
+    const xml = await zip.files[names[i]].async('string');
+    for (const p of pptxParagraphs(xml)) {
+      const t = pptxParagraphText(p);
+      if (t) items.push({ slide: i + 1, text: t });
+    }
+  }
+  return items;
+}
+
+// Reconstruit le .pptx d'origine en remplaçant le texte de chaque paragraphe (même ordre), tout le reste (design, couleurs, images, positions) reste identique
+async function fillPptxTemplate(buffer, replacements) {
+  const JSZip = require('jszip');
+  const zip = await JSZip.loadAsync(buffer);
+  const names = Object.keys(zip.files)
+    .filter(n => /^ppt\/slides\/slide\d+\.xml$/.test(n))
+    .sort((a, b) => (parseInt(a.match(/\d+/)[0], 10) - parseInt(b.match(/\d+/)[0], 10)));
+  let idx = 0;
+  for (const name of names) {
+    let xml = await zip.files[name].async('string');
+    xml = xml.replace(/<a:p>[\s\S]*?<\/a:p>/g, (pBlock) => {
+      const original = pptxParagraphText(pBlock);
+      if (!original) return pBlock;
+      const newText = (idx < replacements.length && typeof replacements[idx] === 'string') ? replacements[idx] : original;
+      idx++;
+      let usedFirst = false;
+      return pBlock.replace(/<a:t>([^<]*)<\/a:t>/g, () => {
+        if (!usedFirst) { usedFirst = true; return '<a:t>' + xmlEncode(newText) + '</a:t>'; }
+        return '<a:t></a:t>';
+      });
+    });
+    zip.file(name, xml);
+  }
+  return zip.generateAsync({ type: 'nodebuffer' });
+}
+
 // Construit un .pptx façon "Canva" (2 colonnes, photos, couleur de marque) à partir de la spec
 async function buildPptx(spec) {
   const pptxgen = require('pptxgenjs');
@@ -425,6 +474,8 @@ async function buildPptx(spec) {
   const TH = PPTX_THEMES[spec && spec.theme] || PPTX_THEMES.canva;
   const DARK = TH.dark, BODY = TH.body, MUT = TH.mut, LIGHTBG = TH.bg, SOFT = TH.soft;
   const CARD = TH.card, LINE = TH.line, RADIUS = TH.radius, FONT = TH.font;
+  const CARD_STYLES = ['square', 'circle', 'bar', 'minimal'];
+  const CARD_STYLE = CARD_STYLES.includes(spec && spec.card_style) ? spec.card_style : CARD_STYLES[Math.floor(Math.random() * CARD_STYLES.length)];
   pres.theme = { headFontFace: FONT, bodyFontFace: FONT };
   const title = (spec && spec.title ? spec.title : 'Présentation').toString();
   const subtitle = (spec && spec.subtitle ? spec.subtitle : '').toString();
@@ -512,26 +563,55 @@ async function buildPptx(spec) {
     const stats = (sl && Array.isArray(sl.stats)) ? sl.stats : [];
     if (stats.length) { const n = Math.min(stats.length, 3); const gap = 0.3; const sw = (CW - gap * (n - 1)) / n; stats.slice(0, n).forEach((st, idx) => { const sx = CX + idx * (sw + gap); c.addText((st && st.value ? st.value : '').toString(), { x: sx, y, w: sw, h: 0.7, fontSize: 34, bold: true, color: ACC }); c.addText((st && st.label ? st.label : '').toString(), { x: sx, y: y + 0.74, w: sw, h: 0.6, fontSize: 12, color: BODY }); }); y += 1.5; }
 
-    // Cartes à icônes (grille façon "offres" : icône couleur + titre + texte)
+    // Cartes à icônes (grille façon "offres"), 4 styles visuels différents pour ne jamais se répéter
     const cards = (sl && Array.isArray(sl.cards)) ? sl.cards : [];
     if (cards.length) {
       const cols = cards.length <= 2 ? cards.length : (cards.length <= 4 ? 2 : 3);
       const gap = 0.22;
       const cw = (CW - gap * (cols - 1)) / cols;
-      const ch = 1.5;
+      const ch = CARD_STYLE === 'bar' ? 1.65 : 1.5;
       cards.forEach((cd, idx) => {
         const col = idx % cols, row = Math.floor(idx / cols);
         const cx = CX + col * (cw + gap);
         const cy = y + row * (ch + gap);
-        c.addShape('roundRect', { x: cx, y: cy, w: cw, h: ch, rectRadius: RADIUS, fill: { color: CARD }, line: { color: LINE, width: 0.75 } });
-        c.addShape('roundRect', { x: cx + 0.2, y: cy + 0.2, w: 0.5, h: 0.5, rectRadius: RADIUS, fill: { color: ACC } });
-        c.addText((cd && cd.icon ? cd.icon : '\u2605').toString(), { x: cx + 0.2, y: cy + 0.2, w: 0.5, h: 0.5, align: 'center', valign: 'middle', fontSize: 20, color: 'FFFFFF' });
-        c.addText((cd && cd.title ? cd.title : '').toString(), { x: cx + 0.85, y: cy + 0.2, w: cw - 1.05, h: 0.5, fontSize: 13, bold: true, color: DARK, valign: 'middle' });
-        c.addText((cd && cd.text ? cd.text : '').toString(), { x: cx + 0.2, y: cy + 0.78, w: cw - 0.4, h: ch - 0.95, fontSize: 10.5, color: BODY, valign: 'top', lineSpacingMultiple: 1.08 });
+        const icon = (cd && cd.icon ? cd.icon : '\u2605').toString();
+        const ctitle = (cd && cd.title ? cd.title : '').toString();
+        const ctext = (cd && cd.text ? cd.text : '').toString();
+
+        if (CARD_STYLE === 'circle') {
+          // Icône ronde centrée en haut, titre et texte centrés
+          c.addShape('roundRect', { x: cx, y: cy, w: cw, h: ch, rectRadius: RADIUS, fill: { color: CARD }, line: { color: LINE, width: 0.75 } });
+          c.addShape('ellipse', { x: cx + cw / 2 - 0.32, y: cy + 0.18, w: 0.64, h: 0.64, fill: { color: ACC } });
+          c.addText(icon, { x: cx + cw / 2 - 0.32, y: cy + 0.18, w: 0.64, h: 0.64, align: 'center', valign: 'middle', fontSize: 22, color: 'FFFFFF' });
+          c.addText(ctitle, { x: cx + 0.15, y: cy + 0.9, w: cw - 0.3, h: 0.35, fontSize: 13, bold: true, color: DARK, align: 'center' });
+          c.addText(ctext, { x: cx + 0.15, y: cy + 1.22, w: cw - 0.3, h: ch - 1.3, fontSize: 10, color: BODY, align: 'center', valign: 'top', lineSpacingMultiple: 1.05 });
+        } else if (CARD_STYLE === 'bar') {
+          // Barre de couleur pleine largeur en haut, icône dedans, titre + texte en dessous
+          c.addShape('roundRect', { x: cx, y: cy, w: cw, h: ch, rectRadius: RADIUS, fill: { color: CARD }, line: { color: LINE, width: 0.75 } });
+          c.addShape('roundRect', { x: cx, y: cy, w: cw, h: 0.55, rectRadius: RADIUS, fill: { color: ACC } });
+          c.addShape('rect', { x: cx, y: cy + 0.28, w: cw, h: 0.27, fill: { color: ACC } });
+          c.addText(icon, { x: cx + 0.15, y: cy, w: 0.5, h: 0.55, align: 'center', valign: 'middle', fontSize: 18, color: 'FFFFFF' });
+          c.addText(ctitle, { x: cx + 0.6, y: cy, w: cw - 0.75, h: 0.55, fontSize: 12.5, bold: true, color: 'FFFFFF', valign: 'middle' });
+          c.addText(ctext, { x: cx + 0.2, y: cy + 0.7, w: cw - 0.4, h: ch - 0.85, fontSize: 10.5, color: BODY, valign: 'top', lineSpacingMultiple: 1.08 });
+        } else if (CARD_STYLE === 'minimal') {
+          // Pas de fond de carte : juste un trait de couleur, icône + titre en ligne, texte en dessous
+          c.addShape('rect', { x: cx, y: cy, w: 0.06, h: ch, fill: { color: ACC } });
+          c.addText(icon, { x: cx + 0.22, y: cy, w: 0.5, h: 0.5, fontSize: 20, valign: 'middle' });
+          c.addText(ctitle, { x: cx + 0.7, y: cy, w: cw - 0.85, h: 0.5, fontSize: 13, bold: true, color: DARK, valign: 'middle' });
+          c.addText(ctext, { x: cx + 0.22, y: cy + 0.56, w: cw - 0.4, h: ch - 0.65, fontSize: 10.5, color: BODY, valign: 'top', lineSpacingMultiple: 1.08 });
+        } else {
+          // 'square' (style d'origine) : icône carrée en haut à gauche, titre à côté, texte en dessous
+          c.addShape('roundRect', { x: cx, y: cy, w: cw, h: ch, rectRadius: RADIUS, fill: { color: CARD }, line: { color: LINE, width: 0.75 } });
+          c.addShape('roundRect', { x: cx + 0.2, y: cy + 0.2, w: 0.5, h: 0.5, rectRadius: RADIUS, fill: { color: ACC } });
+          c.addText(icon, { x: cx + 0.2, y: cy + 0.2, w: 0.5, h: 0.5, align: 'center', valign: 'middle', fontSize: 20, color: 'FFFFFF' });
+          c.addText(ctitle, { x: cx + 0.85, y: cy + 0.2, w: cw - 1.05, h: 0.5, fontSize: 13, bold: true, color: DARK, valign: 'middle' });
+          c.addText(ctext, { x: cx + 0.2, y: cy + 0.78, w: cw - 0.4, h: ch - 0.95, fontSize: 10.5, color: BODY, valign: 'top', lineSpacingMultiple: 1.08 });
+        }
       });
       const rows = Math.ceil(cards.length / cols);
       y += rows * (ch + gap) + 0.1;
     }
+
 
     // Tableau de données (en-tête colorée, façon tableau de résultats)
     const table = (sl && sl.table && Array.isArray(sl.table.rows)) ? sl.table : null;
@@ -710,6 +790,8 @@ app.post('/api/chat', requireAuth, async (req, res) => {
   const messages = past.map(m => ({ role: m.role, content: m.content }));
   const blocks = [];
   let textForAI = text;
+  let pptxBuffer = null; // gardé en mémoire si un .pptx est joint, pour un éventuel remplissage de modèle fidèle
+  let pptxParagraphList = null;
   if (fileKind === 'image') {
     blocks.push({ type: 'image', source: { type: 'base64', media_type: file.media_type, data: file.data } });
   } else if (fileKind === 'pdf') {
@@ -720,10 +802,15 @@ app.post('/api/chat', requireAuth, async (req, res) => {
   } else if (fileKind === 'pptx') {
     const nm = (file.name || 'presentation.pptx').slice(0, 120);
     try {
-      const buf = Buffer.from(file.data, 'base64');
-      const slides = await extractPptxText(buf);
+      pptxBuffer = Buffer.from(file.data, 'base64');
+      const slides = await extractPptxText(pptxBuffer);
       const body = slides.map((t, i) => 'Slide ' + (i + 1) + ': ' + (t || '(vide)')).join('\n');
-      textForAI = 'Contenu texte du PowerPoint joint "' + nm + '" (' + slides.length + ' slides dans le fichier d\'origine, à utiliser comme simple source d\'informations sauf si l\'utilisateur demande explicitement de reproduire la même structure) :\n\n' + body.slice(0, 100000) + (text ? '\n\n' + text : '');
+      pptxParagraphList = await extractPptxParagraphs(pptxBuffer);
+      const paraList = pptxParagraphList.map((p, i) => i + ': ' + p.text).join('\n');
+      textForAI = 'Contenu du PowerPoint joint "' + nm + '" :\n\n' +
+        '--- Résumé slide par slide (source d\'informations si tu recrées une présentation avec create_presentation) ---\n' + body.slice(0, 60000) +
+        '\n\n--- Liste des ' + pptxParagraphList.length + ' paragraphes de texte, dans l\'ordre (à utiliser UNIQUEMENT si l\'utilisateur demande explicitement de réutiliser ce modèle/cette mise en page exacte, via l\'outil fill_pptx_template avec un tableau "replacements" de EXACTEMENT ' + pptxParagraphList.length + ' éléments dans cet ordre) ---\n' + paraList.slice(0, 60000) +
+        (text ? '\n\n' + text : '');
     } catch (e) {
       textForAI = 'Le fichier PowerPoint joint "' + nm + '" n\'a pas pu être lu (format inattendu).' + (text ? '\n\n' + text : '');
     }
@@ -746,7 +833,8 @@ app.post('/api/chat', requireAuth, async (req, res) => {
         title: { type: 'string', description: 'Titre de la présentation' },
         subtitle: { type: 'string', description: 'Sous-titre / accroche (slide de titre)' },
         accent: { type: 'string', description: 'Couleur de marque en hexa SANS # (ex: C0392B). Cohérente avec le sujet.' },
-        theme: { type: 'string', enum: ['canva', 'dark', 'sharp', 'bold'], description: "Style visuel global. 'canva' = clair et arrondi (défaut, polyvalent). 'dark' = fond sombre élégant. 'sharp' = sobre, coins carrés, police sérif (Georgia), look éditorial/corporate strict. 'bold' = coins très arrondis, police Verdana, look impactant/moderne. Garde 'canva' par défaut. Si l'utilisateur dit qu'il n'aime pas le rendu et demande de refaire avec un style/écriture/forme différente, choisis un theme DIFFÉRENT de celui utilisé dans le message précédent." },
+        theme: { type: 'string', enum: ['canva', 'dark', 'sharp', 'bold'], description: "Style visuel global. 'canva' = clair et arrondi (polyvalent, corporate). 'dark' = fond sombre élégant (tech, gaming, sujets modernes/perso). 'sharp' = sobre, coins carrés, police sérif (Georgia), look éditorial/corporate strict. 'bold' = coins très arrondis, police Verdana, look impactant/fun. NE CHOISIS PAS TOUJOURS 'canva' : adapte le theme à l'AMBIANCE du sujet à chaque nouvelle présentation (un sujet pro/BTP/finance appelle plutôt canva/sharp, un sujet fun/perso/jeu vidéo/lifestyle appelle plutôt bold/dark). Si l'utilisateur dit qu'il n'aime pas le rendu et veut un style différent, choisis un theme DIFFÉRENT de celui utilisé dans le message précédent." },
+        card_style: { type: 'string', enum: ['square', 'circle', 'bar', 'minimal'], description: "Style de dessin des cartes (bloc cards) : 'square' = icône carrée en haut à gauche. 'circle' = icône ronde centrée, tout centré. 'bar' = bandeau de couleur en haut de la carte. 'minimal' = pas de fond de carte, juste un trait de couleur sur le côté. VARIE ce choix d'une présentation à l'autre pour ne jamais donner deux fois le même rendu de suite." },
         image_query: { type: 'string', description: "Mots-clés EN ANGLAIS pour la photo de titre" },
         session: { type: 'string', description: 'Petit texte en bas à gauche de la slide de titre (ex: "Session 2027")' },
         presenter: { type: 'string', description: "Nom de l'auteur (optionnel, slide de titre)" },
@@ -787,6 +875,20 @@ app.post('/api/chat', requireAuth, async (req, res) => {
     }
   }];
 
+  if (fileKind === 'pptx' && pptxParagraphList && pptxParagraphList.length) {
+    tools.push({
+      name: 'fill_pptx_template',
+      description: "Utilise cet outil UNIQUEMENT quand l'utilisateur a joint un PowerPoint et demande EXPLICITEMENT de réutiliser EXACTEMENT ce modèle/cette mise en page/ce design (ex: \"utilise ce modèle\", \"garde le même design\", \"reprends exactement ce diaporama et remplace juste le contenu\"). NE PAS utiliser cet outil si l'utilisateur veut une présentation nouvelle, un style différent, ou n'a rien précisé sur le fait de garder le modèle exact : dans ce cas utilise create_presentation à la place. Fournis un tableau 'replacements' contenant EXACTEMENT " + pptxParagraphList.length + " éléments (un par paragraphe de la liste fournie dans le message, dans le MÊME ORDRE), même s'il faut parfois laisser un texte inchangé (numéro de page, mot répété). Pour éviter que le texte déborde de son emplacement (la mise en forme et les positions du fichier d'origine restent inchangées), garde une longueur proche de l'original.",
+      input_schema: {
+        type: 'object',
+        properties: {
+          replacements: { type: 'array', items: { type: 'string' }, description: 'Nouveau texte pour chaque paragraphe, dans le même ordre exact que la liste fournie (' + pptxParagraphList.length + ' éléments attendus).' }
+        },
+        required: ['replacements']
+      }
+    });
+  }
+
   let systemToUse = SYSTEM_PROMPT;
   if (mode === 'correct') {
     systemToUse = "Tu es un correcteur de français professionnel. On te donne un texte : tu dois le CORRIGER, pas répondre à son contenu. Corrige l'orthographe, la grammaire, la conjugaison, la ponctuation, la typographie, et améliore la formulation pour que ce soit clair et naturel, SANS changer le sens ni le ton. Réponds en Markdown, exactement dans ce format :\n\n## ✅ Texte corrigé\n\n(le texte entièrement corrigé)\n\n## ✍️ Principales corrections\n\n- (liste courte et simple des fautes ou reformulations importantes ; si tout était déjà correct, écris « Rien à signaler, ton texte était déjà correct 👍 »)";
@@ -812,7 +914,7 @@ app.post('/api/chat', requireAuth, async (req, res) => {
     else if (fileKind === 'pptx') marker = '📊 [' + (file.name || 'PowerPoint') + ']';
     const storedUser = marker ? (text ? text + '\n' + marker : marker) : text;
 
-    // L'IA a-t-elle décidé de créer une présentation ?
+    // L'IA a-t-elle décidé de créer une présentation (nouveau style) ?
     const toolUse = (data.content || []).find(b => b.type === 'tool_use' && b.name === 'create_presentation');
     if (toolUse) {
       const pres = await buildPptx(toolUse.input || {});
@@ -823,6 +925,24 @@ app.post('/api/chat', requireAuth, async (req, res) => {
       db.prepare('UPDATE users SET msg_used = msg_used + 1 WHERE id = ?').run(u.id);
       db.prepare('UPDATE conversations SET updated_at = ? WHERE id = ?').run(now, convId);
       return res.json({ reply, download: { url: pres.url, title: pres.title }, used: u.msg_used + 1, limit, conversation_id: convId, title: conv.title });
+    }
+
+    // L'IA a-t-elle décidé de remplir le modèle pptx joint tel quel (même design) ?
+    const fillUse = (data.content || []).find(b => b.type === 'tool_use' && b.name === 'fill_pptx_template');
+    if (fillUse && pptxBuffer) {
+      const replacements = (fillUse.input && Array.isArray(fillUse.input.replacements)) ? fillUse.input.replacements : [];
+      const outBuf = await fillPptxTemplate(pptxBuffer, replacements);
+      const token = crypto.randomBytes(6).toString('hex');
+      const fileName = 'presentation-' + token + '.pptx';
+      fs.writeFileSync(path.join(GEN_DIR, fileName), outBuf);
+      const presTitle = (file.name || 'Présentation').replace(/\.pptx$/i, '');
+      const pre = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n').trim();
+      const reply = (pre ? pre + '\n\n' : '') + 'Voilà ✨ J\'ai repris exactement ton modèle et changé le contenu. Clique sur le bouton pour le télécharger.';
+      db.prepare('INSERT INTO messages (user_id, conversation_id, role, content, created_at) VALUES (?,?,?,?,?)').run(u.id, convId, 'user', storedUser, now);
+      db.prepare('INSERT INTO messages (user_id, conversation_id, role, content, created_at) VALUES (?,?,?,?,?)').run(u.id, convId, 'assistant', reply + '\n📊 [' + presTitle + ']', now + 1);
+      db.prepare('UPDATE users SET msg_used = msg_used + 1 WHERE id = ?').run(u.id);
+      db.prepare('UPDATE conversations SET updated_at = ? WHERE id = ?').run(now, convId);
+      return res.json({ reply, download: { url: '/download/' + fileName, title: presTitle }, used: u.msg_used + 1, limit, conversation_id: convId, title: conv.title });
     }
 
     // Réponse texte normale

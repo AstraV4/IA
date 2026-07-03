@@ -33,12 +33,16 @@ const EMPTY_HTML = '<div class="empty" id="empty"><div class="empty-icon">✦</d
 /* ---------- Markdown -> HTML (sûr : on échappe d'abord) ---------- */
 function escapeHtml(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function inlineMd(t){
+  const imgs=[]; const links=[];
+  t = t.replace(/!\[([^\]]*)\]\((\/[^)\s]+|https?:\/\/[^)\s]+)\)/g,(m,alt,src)=>{ imgs.push({alt,src}); return '\u0001'+(imgs.length-1)+'\u0001'; });
+  t = t.replace(/\[([^\]]+)\]\((\/[^)\s]+|https?:\/\/[^)\s]+)\)/g,(m,label,href)=>{ links.push({label,href}); return '\u0002'+(links.length-1)+'\u0002'; });
   t = escapeHtml(t);
   t = t.replace(/`([^`]+)`/g,'<code>$1</code>');
   t = t.replace(/\*\*([^*]+?)\*\*/g,'<strong>$1</strong>');
   t = t.replace(/__([^_]+?)__/g,'<strong>$1</strong>');
   t = t.replace(/(^|[^*])\*([^*\s][^*]*?)\*/g,'$1<em>$2</em>');
-  t = t.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g,'<a href="$2" target="_blank" rel="noopener">$1</a>');
+  t = t.replace(/\u0001(\d+)\u0001/g,(m,i)=>{ const im=imgs[+i]; return '<img class="gen-img" src="'+im.src+'" alt="'+im.alt.replace(/"/g,'&quot;')+'" loading="lazy">'; });
+  t = t.replace(/\u0002(\d+)\u0002/g,(m,i)=>{ const l=links[+i]; const ext = /^https?:\/\//.test(l.href) ? ' target="_blank" rel="noopener"' : ''; const isFile = /\.(pptx|docx|pdf|png|jpe?g)(\?|$)/i.test(l.href); const cls = isFile ? ' class="dl-btn"' : ''; return '<a href="'+l.href+'"'+ext+cls+(isFile?' download':'')+'>'+l.label+'</a>'; });
   return t;
 }
 function splitRow(l){ return l.trim().replace(/^\|/,'').replace(/\|$/,'').split('|').map(c=>c.trim()); }
@@ -239,13 +243,6 @@ async function sendMessage(){
       const willSpeak = window.speakOn || window.voiceMode;
       if(willSpeak){ if(window.voiceMode) setVoiceStatus('speaking'); speakText(plainForSpeech(data.reply), function(){ if(window.voiceMode) vmListen(); else if(wasVoice) startListening(); }); }
       else if(window.voiceMode){ vmListen(); }
-      if(data.download){ const a=document.createElement('a'); a.href=data.download.url; a.className='dl-btn'; a.textContent='📊 Télécharger le PowerPoint'; const copy=body.querySelector('.copy-btn'); if(copy) body.insertBefore(a,copy); else body.appendChild(a); }
-      if(data.image){
-        const img=document.createElement('img'); img.src=data.image.url; img.className='gen-img'; img.loading='lazy';
-        const a=document.createElement('a'); a.href=data.image.url; a.download=''; a.className='dl-btn'; a.textContent='⬇️ Télécharger l\'image';
-        const copy=body.querySelector('.copy-btn');
-        if(copy){ body.insertBefore(img,copy); body.insertBefore(a,copy); } else { body.appendChild(img); body.appendChild(a); }
-      }
       if(!window.CURRENT && data.conversation_id){ window.CURRENT=data.conversation_id; addConvToSidebar(data.conversation_id, data.title); }
       if(typeof data.used==='number'){ $('used').textContent=data.used; const f=$('quota-fill'); if(f) f.style.width=Math.min(100,Math.round(data.used/window.LIMIT*100))+'%'; }
     }

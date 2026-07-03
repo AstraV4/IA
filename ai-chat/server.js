@@ -515,6 +515,36 @@ async function generateImageOpenAI({ prompt, quality, size, refData, refMediaTyp
   return Buffer.from(b64, 'base64');
 }
 
+// Construit un flyer au format PowerPoint portrait : photo de fond (générée par IA) + texte éditable par-dessus (modifiable dans Canva/PowerPoint)
+async function buildFlyerPptx({ imageBuffer, title, subtitle, details, accent }) {
+  const pptxgen = require('pptxgenjs');
+  const pres = new pptxgen();
+  pres.defineLayout({ name: 'FLYER', width: 8.5, height: 11 });
+  pres.layout = 'FLYER';
+  const ACC = (typeof accent === 'string' && /^[0-9a-fA-F]{6}$/.test(accent)) ? accent.toUpperCase() : 'C15F3C';
+  const s = pres.addSlide();
+  s.background = { color: '111111' };
+  const imgB64 = 'data:image/png;base64,' + imageBuffer.toString('base64');
+  s.addImage({ data: imgB64, x: 0, y: 0, w: 8.5, h: 11, sizing: { type: 'cover', w: 8.5, h: 11 } });
+  // Bandeau semi-opaque en bas pour la lisibilité du texte (forme éditable indépendamment de la photo)
+  s.addShape('rect', { x: 0, y: 7.3, w: 8.5, h: 3.7, fill: { color: '000000', transparency: 32 } });
+  let y = 7.7;
+  s.addShape('rect', { x: 0.55, y, w: 0.9, h: 0.09, fill: { color: ACC } });
+  y += 0.3;
+  s.addText((title || 'Titre').toString(), { x: 0.5, y, w: 7.5, h: 1.1, fontSize: 34, bold: true, color: 'FFFFFF', fontFace: 'Arial' });
+  y += 1.15;
+  if (subtitle) { s.addText(String(subtitle), { x: 0.5, y, w: 7.5, h: 0.55, fontSize: 16, color: 'FFFFFF', italic: true, fontFace: 'Arial' }); y += 0.6; }
+  const lines = Array.isArray(details) ? details.filter(Boolean) : [];
+  if (lines.length) {
+    const txt = lines.map(l => ({ text: '●  ' + String(l), options: { breakLine: true, fontSize: 14.5, color: 'FFFFFF', bold: false } }));
+    s.addText(txt, { x: 0.5, y, w: 7.5, h: 1.3, fontFace: 'Arial', lineSpacingMultiple: 1.35 });
+  }
+  const token = crypto.randomBytes(6).toString('hex');
+  const fileName = 'flyer-' + token + '.pptx';
+  await pres.writeFile({ fileName: path.join(GEN_DIR, fileName) });
+  return { url: '/download/' + fileName, fileName };
+}
+
 // Construit un .pptx façon "Canva" (2 colonnes, photos, couleur de marque) à partir de la spec
 async function buildPptx(spec) {
   const pptxgen = require('pptxgenjs');
@@ -936,14 +966,29 @@ app.post('/api/chat', requireAuth, async (req, res) => {
   if (OPENAI_API_KEY) {
     tools.push({
       name: 'generate_image',
-      description: "Utilise cet outil quand l'utilisateur demande de générer, créer, dessiner une image, un visuel, un flyer, une affiche, un logo ou une illustration. Si une image a été jointe au message (ex: un logo à intégrer), elle sera automatiquement utilisée comme référence visuelle par le générateur : mentionne dans le prompt comment l'utiliser (ex: 'incorpore ce logo en haut à droite'). Écris un prompt DÉTAILLÉ ET PRÉCIS, de préférence en anglais (meilleurs résultats), décrivant le sujet, le style visuel, la composition, les couleurs, et surtout TOUT texte exact qui doit apparaître dans l'image, entre guillemets (ex: text reading \"FRANCE vs PARAGUAY\"). Choisis le format le plus adapté : portrait pour un flyer/affiche, paysage pour une bannière, carré pour un post/logo.",
+      description: "Utilise cet outil quand l'utilisateur demande de générer, créer, dessiner une image, un visuel, un logo ou une illustration qui reste une IMAGE FIGÉE (comme une photo, non modifiable élément par élément). Si une image a été jointe au message (ex: un logo à intégrer), elle sera automatiquement utilisée comme référence visuelle : mentionne dans le prompt comment l'utiliser. Écris un prompt DÉTAILLÉ ET PRÉCIS, de préférence en anglais, décrivant le sujet, le style, la composition, les couleurs, et tout texte exact entre guillemets. N'utilise PAS cet outil pour un flyer/une affiche que l'utilisateur veut pouvoir modifier ensuite (texte à déplacer, dans Canva ou PowerPoint) : utilise generate_flyer à la place dans ce cas.",
       input_schema: {
         type: 'object',
         properties: {
           prompt: { type: 'string', description: 'Description détaillée de l\'image à générer, si possible en anglais, avec le texte exact entre guillemets s\'il y en a.' },
-          size: { type: 'string', enum: ['1024x1024', '1024x1536', '1536x1024'], description: '1024x1024 = carré, 1024x1536 = portrait (flyer/affiche), 1536x1024 = paysage (bannière)' }
+          size: { type: 'string', enum: ['1024x1024', '1024x1536', '1536x1024'], description: '1024x1024 = carré, 1024x1536 = portrait, 1536x1024 = paysage' }
         },
         required: ['prompt']
+      }
+    });
+    tools.push({
+      name: 'generate_flyer',
+      description: "Utilise cet outil PAR DÉFAUT pour un flyer, une affiche, un poster promotionnel ou événementiel — car ça produit un vrai fichier PowerPoint (photo de fond générée par IA + titre/sous-titre/infos en texte réellement éditable par-dessus), que l'utilisateur peut ensuite ouvrir et modifier dans PowerPoint OU l'importer dans Canva pour déplacer/modifier chaque élément. Le prompt d'image ne doit décrire QUE le visuel de fond (scène, ambiance, couleurs) et ne doit JAMAIS demander de texte écrit dans l'image (le texte est ajouté séparément par-dessus, en vrai texte éditable) : précise toujours 'no text, no words, no writing' dans le prompt.",
+      input_schema: {
+        type: 'object',
+        properties: {
+          image_prompt: { type: 'string', description: "Description du VISUEL DE FOND uniquement, en anglais, sans aucun texte à afficher dans l'image (ajoute 'no text, no words' à la fin)." },
+          title: { type: 'string', description: 'Titre principal du flyer (grand texte)' },
+          subtitle: { type: 'string', description: 'Sous-titre ou accroche (optionnel)' },
+          details: { type: 'array', items: { type: 'string' }, description: 'Lignes d\'infos pratiques (date, lieu, prix, horaire...), chacune affichée avec une puce' },
+          accent: { type: 'string', description: 'Couleur de marque en hexa SANS # (ex: C0392B)' }
+        },
+        required: ['image_prompt', 'title']
       }
     });
   }
@@ -1003,9 +1048,9 @@ app.post('/api/chat', requireAuth, async (req, res) => {
     if (toolUse) {
       const pres = await buildPptx(toolUse.input || {});
       const pre = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n').trim();
-      const reply = (pre ? pre + '\n\n' : '') + 'Voilà ✨ Ta présentation « ' + pres.title + ' » est prête ! Clique sur le bouton pour la télécharger.\n\nTu peux me demander d\'ajouter des slides, d\'en enlever ou de changer le contenu.';
+      const reply = (pre ? pre + '\n\n' : '') + 'Voilà ✨ Ta présentation « ' + pres.title + ' » est prête !\n\n[📊 Télécharger le PowerPoint](' + pres.url + ')\n\nTu peux me demander d\'ajouter des slides, d\'en enlever ou de changer le contenu.';
       db.prepare('INSERT INTO messages (user_id, conversation_id, role, content, created_at) VALUES (?,?,?,?,?)').run(u.id, convId, 'user', storedUser, now);
-      db.prepare('INSERT INTO messages (user_id, conversation_id, role, content, created_at) VALUES (?,?,?,?,?)').run(u.id, convId, 'assistant', reply + '\n📊 [' + pres.title + ']', now + 1);
+      db.prepare('INSERT INTO messages (user_id, conversation_id, role, content, created_at) VALUES (?,?,?,?,?)').run(u.id, convId, 'assistant', reply, now + 1);
       db.prepare('UPDATE users SET msg_used = msg_used + 1 WHERE id = ?').run(u.id);
       db.prepare('UPDATE conversations SET updated_at = ? WHERE id = ?').run(now, convId);
       return res.json({ reply, download: { url: pres.url, title: pres.title }, used: u.msg_used + 1, limit, conversation_id: convId, title: conv.title });
@@ -1021,12 +1066,12 @@ app.post('/api/chat', requireAuth, async (req, res) => {
       fs.writeFileSync(path.join(GEN_DIR, fileName), outBuf);
       const presTitle = (file.name || 'Présentation').replace(/\.pptx$/i, '');
       const pre = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n').trim();
-      let reply = (pre ? pre + '\n\n' : '') + 'Voilà ✨ J\'ai repris exactement ton modèle et changé le contenu. Clique sur le bouton pour le télécharger.';
+      let reply = (pre ? pre + '\n\n' : '') + 'Voilà ✨ J\'ai repris exactement ton modèle et changé le contenu.\n\n[📊 Télécharger le PowerPoint](/download/' + fileName + ')';
       if (totalCount > 0 && replacedCount < totalCount * 0.6) {
         reply += '\n\n⚠️ Seulement ' + replacedCount + ' texte(s) sur ' + totalCount + ' ont pu être remplacés — réessaie ou reformule ta demande si le résultat ne te convient pas.';
       }
       db.prepare('INSERT INTO messages (user_id, conversation_id, role, content, created_at) VALUES (?,?,?,?,?)').run(u.id, convId, 'user', storedUser, now);
-      db.prepare('INSERT INTO messages (user_id, conversation_id, role, content, created_at) VALUES (?,?,?,?,?)').run(u.id, convId, 'assistant', reply + '\n📊 [' + presTitle + ']', now + 1);
+      db.prepare('INSERT INTO messages (user_id, conversation_id, role, content, created_at) VALUES (?,?,?,?,?)').run(u.id, convId, 'assistant', reply, now + 1);
       db.prepare('UPDATE users SET msg_used = msg_used + 1 WHERE id = ?').run(u.id);
       db.prepare('UPDATE conversations SET updated_at = ? WHERE id = ?').run(now, convId);
       return res.json({ reply, download: { url: '/download/' + fileName, title: presTitle }, used: u.msg_used + 1, limit, conversation_id: convId, title: conv.title });
@@ -1045,15 +1090,38 @@ app.post('/api/chat', requireAuth, async (req, res) => {
         fs.writeFileSync(path.join(GEN_DIR, fileName), buf);
         const pre = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n').trim();
         const qualityNote = u.plan === 'pro' ? '' : '\n\n💡 Qualité "standard" (forfait gratuit). Passe au Pro pour la meilleure qualité d\'image.';
-        const reply = (pre ? pre + '\n\n' : '') + 'Voilà ton image ✨' + qualityNote;
+        const reply = (pre ? pre + '\n\n' : '') + 'Voilà ton image ✨\n\n![Image générée](/download/' + fileName + ')\n\n[⬇️ Télécharger l\'image](/download/' + fileName + ')' + qualityNote;
         db.prepare('INSERT INTO messages (user_id, conversation_id, role, content, created_at) VALUES (?,?,?,?,?)').run(u.id, convId, 'user', storedUser, now);
-        db.prepare('INSERT INTO messages (user_id, conversation_id, role, content, created_at) VALUES (?,?,?,?,?)').run(u.id, convId, 'assistant', reply + '\n🖼️ [image générée]', now + 1);
+        db.prepare('INSERT INTO messages (user_id, conversation_id, role, content, created_at) VALUES (?,?,?,?,?)').run(u.id, convId, 'assistant', reply, now + 1);
         db.prepare('UPDATE users SET msg_used = msg_used + 1 WHERE id = ?').run(u.id);
         db.prepare('UPDATE conversations SET updated_at = ? WHERE id = ?').run(now, convId);
         return res.json({ reply, image: { url: '/download/' + fileName }, used: u.msg_used + 1, limit, conversation_id: convId, title: conv.title });
       } catch (e) {
         console.error('generate_image error', e);
         return res.status(502).json({ error: 'image', message: "La génération d'image a échoué (vérifie la clé OpenAI et le crédit disponible)." });
+      }
+    }
+
+    // L'IA a-t-elle décidé de créer un flyer (photo de fond IA + texte éditable, format PowerPoint) ?
+    const flyerUse = (data.content || []).find(b => b.type === 'tool_use' && b.name === 'generate_flyer');
+    if (flyerUse) {
+      try {
+        const quality = u.plan === 'pro' ? 'high' : 'medium';
+        const inp = flyerUse.input || {};
+        const imagePrompt = (inp.image_prompt || '') + ', no text, no words, no writing, no letters';
+        const buf = await generateImageOpenAI({ prompt: imagePrompt, quality, size: '1024x1536' });
+        const { url } = await buildFlyerPptx({ imageBuffer: buf, title: inp.title, subtitle: inp.subtitle, details: inp.details, accent: inp.accent });
+        const pre = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n').trim();
+        const qualityNote = u.plan === 'pro' ? '' : '\n\n💡 Qualité "standard" (forfait gratuit). Passe au Pro pour la meilleure qualité d\'image.';
+        const reply = (pre ? pre + '\n\n' : '') + 'Voilà ton flyer ✨ (fichier PowerPoint, modifiable directement ou importable dans Canva)\n\n[📊 Télécharger le flyer](' + url + ')' + qualityNote;
+        db.prepare('INSERT INTO messages (user_id, conversation_id, role, content, created_at) VALUES (?,?,?,?,?)').run(u.id, convId, 'user', storedUser, now);
+        db.prepare('INSERT INTO messages (user_id, conversation_id, role, content, created_at) VALUES (?,?,?,?,?)').run(u.id, convId, 'assistant', reply, now + 1);
+        db.prepare('UPDATE users SET msg_used = msg_used + 1 WHERE id = ?').run(u.id);
+        db.prepare('UPDATE conversations SET updated_at = ? WHERE id = ?').run(now, convId);
+        return res.json({ reply, download: { url, title: inp.title || 'Flyer' }, used: u.msg_used + 1, limit, conversation_id: convId, title: conv.title });
+      } catch (e) {
+        console.error('generate_flyer error', e);
+        return res.status(502).json({ error: 'flyer', message: "La génération du flyer a échoué (vérifie la clé OpenAI et le crédit disponible)." });
       }
     }
 

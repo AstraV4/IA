@@ -73,7 +73,7 @@
   <% } %>
 
   <table>
-    <tr><th>ID</th><th>E-mail</th><th>Forfait</th><th>Messages</th><th>Forfait</th><th>Mot de passe</th></tr>
+    <tr><th>ID</th><th>E-mail</th><th>Forfait</th><th>Messages</th><th>Forfait</th><th>Mot de passe</th><th>Compte</th></tr>
     <% users.forEach(function(u){ %>
       <tr>
         <td><%= u.id %></td>
@@ -97,6 +97,16 @@
             <input type="hidden" name="userId" value="<%= u.id %>" />
             <button class="btn mini" type="submit">🔑 Réinit.</button>
           </form>
+        </td>
+        <td>
+          <% if (u.id !== me.id) { %>
+          <form method="POST" action="/admin/delete" style="display:inline" onsubmit="return confirm('Supprimer définitivement le compte de <%= u.email %> et toutes ses conversations ? Cette action est irréversible.')">
+            <input type="hidden" name="userId" value="<%= u.id %>" />
+            <button class="btn btn-danger mini" type="submit">🗑️ Supprimer</button>
+          </form>
+          <% } else { %>
+            <span style="color:var(--dim);font-size:.82rem">(toi)</span>
+          <% } %>
         </td>
       </tr>
     <% }) %>

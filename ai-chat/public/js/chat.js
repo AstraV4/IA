@@ -214,18 +214,22 @@ function addConvToSidebar(id,title){
 
 input.addEventListener('input', () => { input.style.height='auto'; input.style.height=Math.min(input.scrollHeight,150)+'px'; });
 
+let currentAbortController = null;
+
 async function sendMessage(){
+  if(currentAbortController) return; // une réponse est déjà en cours
   const text=input.value.trim();
   if(!text && !pendingFile) return;
   const file=pendingFile;
   addUser(text,file);
   input.value=''; input.style.height='auto'; clearFile();
-  send.disabled=true;
+  setSendState('stop');
   const typing=addTyping();
   if(window.voiceMode) setVoiceStatus('thinking');
   const payloadFile = file ? (file.kind==='text' ? {kind:'text',text:file.text,name:file.name} : {kind:file.kind,media_type:file.media_type,data:file.data,name:file.name}) : undefined;
+  currentAbortController = new AbortController();
   try{
-    const r=await fetch('/api/chat',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ message:text, conversation_id:window.CURRENT||undefined, file:payloadFile }) });
+    const r=await fetch('/api/chat',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ message:text, conversation_id:window.CURRENT||undefined, file:payloadFile }), signal: currentAbortController.signal });
     const data=await r.json(); typing.remove();
     if(r.status===402){ addAI("🔒 "+(data.message||"Limite atteinte.")+" [Passe au Pro](/account) pour continuer."); if(window.voiceMode) vmClose(); }
     else if(!r.ok){ addAI("⚠️ "+(data.message||"Une erreur est survenue.")); if(window.voiceMode) vmListen(); }
@@ -236,13 +240,31 @@ async function sendMessage(){
       if(willSpeak){ if(window.voiceMode) setVoiceStatus('speaking'); speakText(plainForSpeech(data.reply), function(){ if(window.voiceMode) vmListen(); else if(wasVoice) startListening(); }); }
       else if(window.voiceMode){ vmListen(); }
       if(data.download){ const a=document.createElement('a'); a.href=data.download.url; a.className='dl-btn'; a.textContent='📊 Télécharger le PowerPoint'; const copy=body.querySelector('.copy-btn'); if(copy) body.insertBefore(a,copy); else body.appendChild(a); }
+      if(data.image){
+        const img=document.createElement('img'); img.src=data.image.url; img.className='gen-img'; img.loading='lazy';
+        const a=document.createElement('a'); a.href=data.image.url; a.download=''; a.className='dl-btn'; a.textContent='⬇️ Télécharger l\'image';
+        const copy=body.querySelector('.copy-btn');
+        if(copy){ body.insertBefore(img,copy); body.insertBefore(a,copy); } else { body.appendChild(img); body.appendChild(a); }
+      }
       if(!window.CURRENT && data.conversation_id){ window.CURRENT=data.conversation_id; addConvToSidebar(data.conversation_id, data.title); }
       if(typeof data.used==='number'){ $('used').textContent=data.used; const f=$('quota-fill'); if(f) f.style.width=Math.min(100,Math.round(data.used/window.LIMIT*100))+'%'; }
     }
-  }catch(e){ typing.remove(); addAI("⚠️ Erreur de connexion."); }
-  send.disabled=false; input.focus();
+  }catch(e){
+    typing.remove();
+    if(e.name==='AbortError'){ addAI("⏹️ Génération interrompue."); if(window.voiceMode) vmListen(); }
+    else { addAI("⚠️ Erreur de connexion."); }
+  }
+  currentAbortController = null;
+  setSendState('send'); input.focus();
 }
-send.addEventListener('click', sendMessage);
+function setSendState(state){
+  if(state==='stop'){ send.classList.add('is-stop'); send.title='Arrêter'; send.innerHTML='<span class="stop-sq"></span>'; }
+  else { send.classList.remove('is-stop'); send.disabled=false; send.title='Envoyer'; send.innerHTML='➤'; }
+}
+send.addEventListener('click', () => {
+  if(send.classList.contains('is-stop')){ if(currentAbortController) currentAbortController.abort(); }
+  else { sendMessage(); }
+});
 input.addEventListener('keydown', (e)=>{ if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); sendMessage(); } });
 
 thread.scrollTop=thread.scrollHeight;

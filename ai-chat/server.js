@@ -17,11 +17,12 @@ const PORT = process.env.PORT || 3000;
 // ----- Configuration (variables d'environnement) -----
 const SITE_NAME = process.env.SITE_NAME || 'Mon IA';
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
 const MODEL = process.env.AI_MODEL || 'claude-haiku-4-5';
 const SYSTEM_PROMPT = process.env.SYSTEM_PROMPT ||
   "Tu es un assistant amical et serviable qui répond en français de façon claire et concise.";
 
-const FREE_LIMIT = parseInt(process.env.PLAN_FREE_LIMIT || '30', 10);   // messages / mois (gratuit)
+const FREE_LIMIT = parseInt(process.env.PLAN_FREE_LIMIT || '150', 10);   // messages / mois (gratuit)
 const PRO_LIMIT  = parseInt(process.env.PLAN_PRO_LIMIT  || '1000', 10); // messages / mois (pro)
 
 // Pro via Discord (plus de paiement par carte)
@@ -438,21 +439,32 @@ async function extractPptxParagraphs(buffer) {
   return items;
 }
 
-// Reconstruit le .pptx d'origine en remplaçant le texte de chaque paragraphe (même ordre), tout le reste (design, couleurs, images, positions) reste identique
-async function fillPptxTemplate(buffer, replacements) {
+// Reconstruit le .pptx d'origine en remplaçant le texte par CORRESPONDANCE EXACTE (original -> nouveau texte),
+// pas par position : si l'IA oublie une entrée, seul CE texte reste inchangé (pas d'effet domino sur tout le fichier).
+async function fillPptxTemplateByMap(buffer, mappings) {
   const JSZip = require('jszip');
+  const norm = s => String(s).replace(/\s+/g, ' ').trim();
+  const map = new Map();
+  (Array.isArray(mappings) ? mappings : []).forEach(m => {
+    if (m && typeof m.original === 'string' && typeof m.replacement === 'string') {
+      map.set(norm(m.original), m.replacement);
+    }
+  });
   const zip = await JSZip.loadAsync(buffer);
   const names = Object.keys(zip.files)
     .filter(n => /^ppt\/slides\/slide\d+\.xml$/.test(n))
     .sort((a, b) => (parseInt(a.match(/\d+/)[0], 10) - parseInt(b.match(/\d+/)[0], 10)));
-  let idx = 0;
+  let replacedCount = 0, totalCount = 0;
   for (const name of names) {
     let xml = await zip.files[name].async('string');
     xml = xml.replace(/<a:p>[\s\S]*?<\/a:p>/g, (pBlock) => {
       const original = pptxParagraphText(pBlock);
       if (!original) return pBlock;
-      const newText = (idx < replacements.length && typeof replacements[idx] === 'string') ? replacements[idx] : original;
-      idx++;
+      totalCount++;
+      const key = norm(original);
+      if (!map.has(key)) return pBlock; // pas de correspondance fournie -> texte d'origine conservé
+      const newText = map.get(key);
+      replacedCount++;
       let usedFirst = false;
       return pBlock.replace(/<a:t>([^<]*)<\/a:t>/g, () => {
         if (!usedFirst) { usedFirst = true; return '<a:t>' + xmlEncode(newText) + '</a:t>'; }
@@ -461,7 +473,46 @@ async function fillPptxTemplate(buffer, replacements) {
     });
     zip.file(name, xml);
   }
-  return zip.generateAsync({ type: 'nodebuffer' });
+  const outBuf = await zip.generateAsync({ type: 'nodebuffer' });
+  return { buffer: outBuf, replacedCount, totalCount };
+}
+
+// Génère une image via l'API OpenAI (gpt-image-2). Si une image de référence est fournie
+// (ex: un logo envoyé par l'utilisateur), on utilise l'endpoint "edits" pour l'intégrer au résultat.
+async function generateImageOpenAI({ prompt, quality, size, refData, refMediaType }) {
+  if (!OPENAI_API_KEY) throw new Error('no_api_key');
+  const q = ['low', 'medium', 'high'].includes(quality) ? quality : 'medium';
+  const sz = ['1024x1024', '1024x1536', '1536x1024'].includes(size) ? size : '1024x1024';
+  let r;
+  if (refData) {
+    const form = new FormData();
+    form.append('model', 'gpt-image-2');
+    form.append('prompt', prompt);
+    form.append('quality', q);
+    form.append('size', sz);
+    const ext = (refMediaType || '').includes('png') ? 'png' : 'jpg';
+    form.append('image', new Blob([Buffer.from(refData, 'base64')], { type: refMediaType || 'image/png' }), 'reference.' + ext);
+    r = await fetch('https://api.openai.com/v1/images/edits', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + OPENAI_API_KEY },
+      body: form
+    });
+  } else {
+    r = await fetch('https://api.openai.com/v1/images/generations', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + OPENAI_API_KEY, 'content-type': 'application/json' },
+      body: JSON.stringify({ model: 'gpt-image-2', prompt, quality: q, size: sz, n: 1 })
+    });
+  }
+  if (!r.ok) {
+    const errText = await r.text();
+    console.error('OpenAI image error', r.status, errText);
+    throw new Error('openai_image_failed');
+  }
+  const data = await r.json();
+  const b64 = data && data.data && data.data[0] && data.data[0].b64_json;
+  if (!b64) throw new Error('openai_image_empty');
+  return Buffer.from(b64, 'base64');
 }
 
 // Construit un .pptx façon "Canva" (2 colonnes, photos, couleur de marque) à partir de la spec
@@ -792,8 +843,11 @@ app.post('/api/chat', requireAuth, async (req, res) => {
   let textForAI = text;
   let pptxBuffer = null; // gardé en mémoire si un .pptx est joint, pour un éventuel remplissage de modèle fidèle
   let pptxParagraphList = null;
+  let pptxUniqueTexts = null;
+  let refImage = null; // image jointe (ex: logo) réutilisable comme référence pour generate_image
   if (fileKind === 'image') {
     blocks.push({ type: 'image', source: { type: 'base64', media_type: file.media_type, data: file.data } });
+    refImage = { data: file.data, media_type: file.media_type };
   } else if (fileKind === 'pdf') {
     blocks.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: file.data } });
   } else if (fileKind === 'text') {
@@ -806,10 +860,14 @@ app.post('/api/chat', requireAuth, async (req, res) => {
       const slides = await extractPptxText(pptxBuffer);
       const body = slides.map((t, i) => 'Slide ' + (i + 1) + ': ' + (t || '(vide)')).join('\n');
       pptxParagraphList = await extractPptxParagraphs(pptxBuffer);
-      const paraList = pptxParagraphList.map((p, i) => i + ': ' + p.text).join('\n');
+      const seenTexts = new Set();
+      const uniqueTexts = [];
+      for (const p of pptxParagraphList) { if (!seenTexts.has(p.text)) { seenTexts.add(p.text); uniqueTexts.push(p.text); } }
+      pptxUniqueTexts = uniqueTexts;
+      const uniqueListStr = uniqueTexts.map((t, i) => i + ': ' + t).join('\n');
       textForAI = 'Contenu du PowerPoint joint "' + nm + '" :\n\n' +
         '--- Résumé slide par slide (source d\'informations si tu recrées une présentation avec create_presentation) ---\n' + body.slice(0, 60000) +
-        '\n\n--- Liste des ' + pptxParagraphList.length + ' paragraphes de texte, dans l\'ordre (À UTILISER PAR DÉFAUT via l\'outil fill_pptx_template avec un tableau "replacements" de EXACTEMENT ' + pptxParagraphList.length + ' éléments dans cet ordre, sauf si l\'utilisateur demande explicitement un style/design différent de l\'original) ---\n' + paraList.slice(0, 60000) +
+        '\n\n--- Liste des ' + uniqueTexts.length + ' textes UNIQUES du fichier (certains se répètent plusieurs fois dans le fichier, ex: texte de remplissage ou nom de marque en pied de page ; À UTILISER PAR DÉFAUT via l\'outil fill_pptx_template avec un tableau "mappings", sauf si l\'utilisateur demande explicitement un style/design différent de l\'original) ---\n' + uniqueListStr.slice(0, 60000) +
         (text ? '\n\n' + text : '');
     } catch (e) {
       textForAI = 'Le fichier PowerPoint joint "' + nm + '" n\'a pas pu être lu (format inattendu).' + (text ? '\n\n' + text : '');
@@ -875,16 +933,42 @@ app.post('/api/chat', requireAuth, async (req, res) => {
     }
   }];
 
-  if (fileKind === 'pptx' && pptxParagraphList && pptxParagraphList.length) {
+  if (OPENAI_API_KEY) {
     tools.push({
-      name: 'fill_pptx_template',
-      description: "UTILISE CET OUTIL PAR DÉFAUT dès qu'un fichier PowerPoint (.pptx) est joint au message et que l'utilisateur veut l'adapter, le modifier, le reprendre, changer des infos dedans (nom d'entreprise, chiffres, texte) — même s'il ne précise pas explicitement 'garde le design'. C'est le comportement ATTENDU PAR DÉFAUT pour tout .pptx joint : il faut préserver le design, les couleurs, les images et la mise en page d'origine, et changer seulement le texte. N'utilise PAS cet outil, et utilise create_presentation à la place, SEULEMENT si l'utilisateur demande explicitement un style/design différent de l'original (ex: \"fais un style différent\", \"change complètement le design\", \"je veux un autre rendu que celui-ci\"). Fournis un tableau 'replacements' contenant EXACTEMENT " + pptxParagraphList.length + " éléments (un par paragraphe de la liste fournie dans le message, dans le MÊME ORDRE), même s'il faut parfois laisser un texte inchangé (numéro de page, mot répété). Pour éviter que le texte déborde de son emplacement (la mise en forme et les positions du fichier d'origine restent inchangées), garde une longueur proche de l'original.",
+      name: 'generate_image',
+      description: "Utilise cet outil quand l'utilisateur demande de générer, créer, dessiner une image, un visuel, un flyer, une affiche, un logo ou une illustration. Si une image a été jointe au message (ex: un logo à intégrer), elle sera automatiquement utilisée comme référence visuelle par le générateur : mentionne dans le prompt comment l'utiliser (ex: 'incorpore ce logo en haut à droite'). Écris un prompt DÉTAILLÉ ET PRÉCIS, de préférence en anglais (meilleurs résultats), décrivant le sujet, le style visuel, la composition, les couleurs, et surtout TOUT texte exact qui doit apparaître dans l'image, entre guillemets (ex: text reading \"FRANCE vs PARAGUAY\"). Choisis le format le plus adapté : portrait pour un flyer/affiche, paysage pour une bannière, carré pour un post/logo.",
       input_schema: {
         type: 'object',
         properties: {
-          replacements: { type: 'array', items: { type: 'string' }, description: 'Nouveau texte pour chaque paragraphe, dans le même ordre exact que la liste fournie (' + pptxParagraphList.length + ' éléments attendus).' }
+          prompt: { type: 'string', description: 'Description détaillée de l\'image à générer, si possible en anglais, avec le texte exact entre guillemets s\'il y en a.' },
+          size: { type: 'string', enum: ['1024x1024', '1024x1536', '1536x1024'], description: '1024x1024 = carré, 1024x1536 = portrait (flyer/affiche), 1536x1024 = paysage (bannière)' }
         },
-        required: ['replacements']
+        required: ['prompt']
+      }
+    });
+  }
+
+  if (fileKind === 'pptx' && pptxUniqueTexts && pptxUniqueTexts.length) {
+    tools.push({
+      name: 'fill_pptx_template',
+      description: "UTILISE CET OUTIL PAR DÉFAUT dès qu'un fichier PowerPoint (.pptx) est joint au message et que l'utilisateur veut l'adapter, le modifier, le reprendre, changer des infos dedans (nom d'entreprise, chiffres, texte) — même s'il ne précise pas explicitement 'garde le design'. C'est le comportement ATTENDU PAR DÉFAUT pour tout .pptx joint : il faut préserver le design, les couleurs, les images et la mise en page d'origine, et changer seulement le texte. N'utilise PAS cet outil, et utilise create_presentation à la place, SEULEMENT si l'utilisateur demande explicitement un style/design différent de l'original (ex: \"fais un style différent\", \"change complètement le design\", \"je veux un autre rendu que celui-ci\"). Fournis un tableau 'mappings' avec une entrée { original, replacement } pour CHAQUE texte de la liste des " + pptxUniqueTexts.length + " textes uniques fournie dans le message (même si le texte doit rester identique : mets alors replacement = original). Le champ 'original' doit être une copie EXACTE (caractère pour caractère) d'un texte de la liste fournie, sinon le remplacement ne sera pas appliqué. Garde une longueur de texte proche de l'original pour chaque remplacement, pour ne pas déborder de son emplacement (le design et les positions ne changent pas). L'ordre des entrées dans le tableau n'a pas d'importance.",
+      input_schema: {
+        type: 'object',
+        properties: {
+          mappings: {
+            type: 'array',
+            description: 'Une entrée par texte unique de la liste fournie (' + pptxUniqueTexts.length + ' attendues).',
+            items: {
+              type: 'object',
+              properties: {
+                original: { type: 'string', description: 'Texte original EXACT, copié depuis la liste fournie dans le message' },
+                replacement: { type: 'string', description: 'Nouveau texte (identique à original si rien ne doit changer)' }
+              },
+              required: ['original', 'replacement']
+            }
+          }
+        },
+        required: ['mappings']
       }
     });
   }
@@ -930,19 +1014,47 @@ app.post('/api/chat', requireAuth, async (req, res) => {
     // L'IA a-t-elle décidé de remplir le modèle pptx joint tel quel (même design) ?
     const fillUse = (data.content || []).find(b => b.type === 'tool_use' && b.name === 'fill_pptx_template');
     if (fillUse && pptxBuffer) {
-      const replacements = (fillUse.input && Array.isArray(fillUse.input.replacements)) ? fillUse.input.replacements : [];
-      const outBuf = await fillPptxTemplate(pptxBuffer, replacements);
+      const mappings = (fillUse.input && Array.isArray(fillUse.input.mappings)) ? fillUse.input.mappings : [];
+      const { buffer: outBuf, replacedCount, totalCount } = await fillPptxTemplateByMap(pptxBuffer, mappings);
       const token = crypto.randomBytes(6).toString('hex');
       const fileName = 'presentation-' + token + '.pptx';
       fs.writeFileSync(path.join(GEN_DIR, fileName), outBuf);
       const presTitle = (file.name || 'Présentation').replace(/\.pptx$/i, '');
       const pre = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n').trim();
-      const reply = (pre ? pre + '\n\n' : '') + 'Voilà ✨ J\'ai repris exactement ton modèle et changé le contenu. Clique sur le bouton pour le télécharger.';
+      let reply = (pre ? pre + '\n\n' : '') + 'Voilà ✨ J\'ai repris exactement ton modèle et changé le contenu. Clique sur le bouton pour le télécharger.';
+      if (totalCount > 0 && replacedCount < totalCount * 0.6) {
+        reply += '\n\n⚠️ Seulement ' + replacedCount + ' texte(s) sur ' + totalCount + ' ont pu être remplacés — réessaie ou reformule ta demande si le résultat ne te convient pas.';
+      }
       db.prepare('INSERT INTO messages (user_id, conversation_id, role, content, created_at) VALUES (?,?,?,?,?)').run(u.id, convId, 'user', storedUser, now);
       db.prepare('INSERT INTO messages (user_id, conversation_id, role, content, created_at) VALUES (?,?,?,?,?)').run(u.id, convId, 'assistant', reply + '\n📊 [' + presTitle + ']', now + 1);
       db.prepare('UPDATE users SET msg_used = msg_used + 1 WHERE id = ?').run(u.id);
       db.prepare('UPDATE conversations SET updated_at = ? WHERE id = ?').run(now, convId);
       return res.json({ reply, download: { url: '/download/' + fileName, title: presTitle }, used: u.msg_used + 1, limit, conversation_id: convId, title: conv.title });
+    }
+
+    // L'IA a-t-elle décidé de générer une image ?
+    const imgUse = (data.content || []).find(b => b.type === 'tool_use' && b.name === 'generate_image');
+    if (imgUse) {
+      try {
+        const quality = u.plan === 'pro' ? 'high' : 'medium';
+        const prompt = (imgUse.input && imgUse.input.prompt) ? imgUse.input.prompt : text;
+        const size = (imgUse.input && imgUse.input.size) || '1024x1024';
+        const buf = await generateImageOpenAI({ prompt, quality, size, refData: refImage && refImage.data, refMediaType: refImage && refImage.media_type });
+        const token = crypto.randomBytes(6).toString('hex');
+        const fileName = 'image-' + token + '.png';
+        fs.writeFileSync(path.join(GEN_DIR, fileName), buf);
+        const pre = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n').trim();
+        const qualityNote = u.plan === 'pro' ? '' : '\n\n💡 Qualité "standard" (forfait gratuit). Passe au Pro pour la meilleure qualité d\'image.';
+        const reply = (pre ? pre + '\n\n' : '') + 'Voilà ton image ✨' + qualityNote;
+        db.prepare('INSERT INTO messages (user_id, conversation_id, role, content, created_at) VALUES (?,?,?,?,?)').run(u.id, convId, 'user', storedUser, now);
+        db.prepare('INSERT INTO messages (user_id, conversation_id, role, content, created_at) VALUES (?,?,?,?,?)').run(u.id, convId, 'assistant', reply + '\n🖼️ [image générée]', now + 1);
+        db.prepare('UPDATE users SET msg_used = msg_used + 1 WHERE id = ?').run(u.id);
+        db.prepare('UPDATE conversations SET updated_at = ? WHERE id = ?').run(now, convId);
+        return res.json({ reply, image: { url: '/download/' + fileName }, used: u.msg_used + 1, limit, conversation_id: convId, title: conv.title });
+      } catch (e) {
+        console.error('generate_image error', e);
+        return res.status(502).json({ error: 'image', message: "La génération d'image a échoué (vérifie la clé OpenAI et le crédit disponible)." });
+      }
     }
 
     // Réponse texte normale
@@ -960,9 +1072,10 @@ app.post('/api/chat', requireAuth, async (req, res) => {
 
 app.get('/download/:name', requireAuth, (req, res) => {
   const name = req.params.name;
-  if (!/^[\w.-]+\.(pptx|docx|pdf)$/.test(name)) return res.status(400).end();
+  if (!/^[\w.-]+\.(pptx|docx|pdf|png|jpg|jpeg)$/.test(name)) return res.status(400).end();
   const fp = path.join(GEN_DIR, name);
   if (!fs.existsSync(fp)) return res.status(404).end();
+  if (/\.(png|jpg|jpeg)$/.test(name)) return res.sendFile(fp); // affichage inline (balise <img>)
   res.download(fp);
 });
 
@@ -1019,9 +1132,19 @@ app.post('/admin/setplan', requireAuth, requireAdmin, (req, res) => {
   res.redirect('/admin');
 });
 
+app.post('/admin/delete', requireAuth, requireAdmin, (req, res) => {
+  const id = parseInt(req.body.userId, 10);
+  if (id && id !== req.session.userId) { // sécurité : un admin ne peut pas se supprimer lui-même depuis cette page
+    db.prepare('DELETE FROM messages WHERE user_id = ?').run(id);
+    db.prepare('DELETE FROM conversations WHERE user_id = ?').run(id);
+    db.prepare('DELETE FROM users WHERE id = ?').run(id);
+  }
+  res.redirect('/admin');
+});
+
 // ===================== DIAGNOSTIC =====================
 app.get('/health', (req, res) => {
-  const info = { ok: true, model: MODEL, dataDir: DATA_DIR, node: process.version, hasApiKey: !!ANTHROPIC_API_KEY, mailEnabled: MAIL_ENABLED };
+  const info = { ok: true, model: MODEL, dataDir: DATA_DIR, node: process.version, hasApiKey: !!ANTHROPIC_API_KEY, hasOpenAiKey: !!OPENAI_API_KEY, mailEnabled: MAIL_ENABLED };
   try {
     db.prepare('CREATE TABLE IF NOT EXISTS _health (x INTEGER)').run();
     db.prepare('INSERT INTO _health (x) VALUES (1)').run();

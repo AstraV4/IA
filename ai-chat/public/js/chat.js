@@ -184,14 +184,19 @@ function classify(f){ const t=f.type||'', n=(f.name||'').toLowerCase();
   if(t.startsWith('text/')||TEXT_EXT.some(e=>n.endsWith(e))) return 'text';
   return 'other'; }
 attach.addEventListener('click', () => fileInput.click());
-fileInput.addEventListener('change', () => {
-  const f = fileInput.files[0]; if (!f) return;
-  if (f.size > 10*1024*1024) { alert('Fichier trop lourd (max 10 Mo).'); fileInput.value=''; return; }
+function handleIncomingFile(f){
+  if (!f) return;
+  if (f.size > 10*1024*1024) { alert('Fichier trop lourd (max 10 Mo).'); return; }
   const kind = classify(f);
-  if (kind==='other'){ alert("Ce type de fichier ne peut pas être lu par l'IA.\nFormats acceptés : images, PDF, PowerPoint (.pptx), textes/code."); fileInput.value=''; return; }
+  if (kind==='other'){ alert("Ce type de fichier ne peut pas être lu par l'IA.\nFormats acceptés : images, PDF, PowerPoint (.pptx), textes/code."); return; }
   const reader = new FileReader();
   if (kind==='text'){ reader.onload=()=>{ pendingFile={kind,text:reader.result,name:f.name}; showPreview(kind,null,f.name); }; reader.readAsText(f); }
   else { reader.onload=()=>{ const url=reader.result; pendingFile={kind,media_type:f.type,data:url.split(',')[1],name:f.name,url}; showPreview(kind, kind==='image'?url:null, f.name); }; reader.readAsDataURL(f); }
+}
+fileInput.addEventListener('change', () => {
+  const f = fileInput.files[0]; if (!f) return;
+  handleIncomingFile(f);
+  fileInput.value='';
 });
 function showPreview(kind,url,name){
   if(kind==='image'){ previewImg.src=url; previewImg.hidden=false; previewChip.hidden=true; }
@@ -200,6 +205,23 @@ function showPreview(kind,url,name){
 }
 $('preview-remove').addEventListener('click', clearFile);
 function clearFile(){ pendingFile=null; preview.hidden=true; previewImg.hidden=true; previewChip.hidden=true; fileInput.value=''; }
+
+/* ---------- Glisser-déposer un fichier n'importe où sur le chat ---------- */
+const dropZone = document.querySelector('.main') || document.body;
+const dropHint = document.createElement('div');
+dropHint.className = 'drop-hint';
+dropHint.innerHTML = '<div class="drop-hint-card">📎 Dépose ton fichier ici</div>';
+dropHint.hidden = true;
+dropZone.appendChild(dropHint);
+let dragDepth = 0;
+dropZone.addEventListener('dragenter', (e) => { e.preventDefault(); dragDepth++; dropHint.hidden = false; });
+dropZone.addEventListener('dragover', (e) => { e.preventDefault(); });
+dropZone.addEventListener('dragleave', (e) => { dragDepth = Math.max(0, dragDepth-1); if (dragDepth===0) dropHint.hidden = true; });
+dropZone.addEventListener('drop', (e) => {
+  e.preventDefault(); dragDepth = 0; dropHint.hidden = true;
+  const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+  if (f) handleIncomingFile(f);
+});
 
 /* ---------- Bulles / rendu ---------- */
 function addUser(text, file){
@@ -311,7 +333,8 @@ async function sendMessage(){
       const wasVoice = window._voiceTurn; window._voiceTurn = false;
       const body=addAI(data.reply);
       const willSpeak = window.speakOn || window.voiceMode;
-      if(willSpeak){ if(window.voiceMode) setVoiceStatus('speaking'); speakText(plainForSpeech(data.reply), function(){ if(window.voiceMode) vmListen(); else if(wasVoice) startListening(); }); }
+      if(window.voiceMode && willSpeak){ vmSpeak(plainForSpeech(data.reply)); }
+      else if(willSpeak){ speakText(plainForSpeech(data.reply), function(){ if(wasVoice) startListening(); }); }
       else if(window.voiceMode){ vmListen(); }
       if(!window.CURRENT && data.conversation_id){ window.CURRENT=data.conversation_id; addConvToSidebar(data.conversation_id, data.title); }
       if(typeof data.used==='number'){ $('used').textContent=data.used; const f=$('quota-fill'); if(f) f.style.width=Math.min(100,Math.round(data.used/window.LIMIT*100))+'%'; }
@@ -363,11 +386,12 @@ let recog = null, listening = false;
 function stopVoiceUI(){ listening = false; if (voiceBar) voiceBar.hidden = true; if (mic) mic.classList.remove('rec'); }
 function stopListening(){ try { if (recog) recog.stop(); } catch(e){} stopVoiceUI(); }
 
-// Écoute une phrase. onFinal(texte) reçoit le résultat.
-function listenOnce(onFinal){
+// Écoute une phrase. onFinal(texte) reçoit le résultat. opts.keepSpeaking=true : ne coupe pas une synthèse vocale en cours (utilisé pour l'écoute de fond / interruption).
+function listenOnce(onFinal, opts){
+  opts = opts || {};
   if (!recogSupported) return false;
   if (listening) return true;
-  try { if (window.speechSynthesis) window.speechSynthesis.cancel(); } catch(e){}
+  if (!opts.keepSpeaking) { try { if (window.speechSynthesis) window.speechSynthesis.cancel(); } catch(e){} }
   recog = new SR();
   recog.lang = 'fr-FR'; recog.interimResults = true; recog.maxAlternatives = 1; recog.continuous = false;
   let finalText = '';
@@ -436,7 +460,35 @@ function setVoiceStatus(state){
   if (voiceStatusEl){ const map = { listening:"🎧 Je t'écoute…", thinking:'💭 Je réfléchis…', speaking:'🗣️ Je réponds…', idle:'En pause' }; voiceStatusEl.textContent = map[state] || ''; }
   if (voiceOrb) voiceOrb.className = 'orb ' + (state || '');
 }
-function vmListen(){ setVoiceStatus('listening'); const live = $('voice-live'); if (live) live.textContent = ''; listenOnce(function(t){ setVoiceStatus('thinking'); input.value = t; window._voiceTurn = true; sendMessage(); }); }
+function vmListen(){ setVoiceStatus('listening'); const live = $('voice-live'); if (live) live.textContent = ''; listenOnce(vmHandleUserUtterance); }
+function vmHandleUserUtterance(t){ setVoiceStatus('thinking'); input.value = t; window._voiceTurn = true; sendMessage(); }
+
+// Écoute de fond indépendante (n'utilise pas recog/listening du dictaphone) : détecte si l'utilisateur
+// se met à parler PENDANT que l'IA répond à voix haute, pour l'interrompre — comme dans un vrai appel.
+function startBargeInWatch(onInterrupt){
+  if (!recogSupported) return { stop(){} };
+  let r; try { r = new SR(); } catch(e){ return { stop(){} }; }
+  r.lang = 'fr-FR'; r.interimResults = false; r.continuous = false; r.maxAlternatives = 1;
+  let done = false;
+  r.onresult = (e) => { const t = e.results[e.results.length-1][0].transcript.trim(); if (t && !done){ done = true; onInterrupt(t); } };
+  r.onerror = () => {}; r.onend = () => {};
+  try { r.start(); } catch(e){ return { stop(){} }; }
+  return { stop(){ done = true; try { r.onresult = null; r.stop(); } catch(e){} } };
+}
+function vmSpeak(text){
+  setVoiceStatus('speaking');
+  let interrupted = false;
+  const watch = startBargeInWatch(function(t){
+    interrupted = true;
+    try { window.speechSynthesis.cancel(); } catch(e){}
+    vmHandleUserUtterance(t);
+  });
+  speakText(text, function(){
+    watch.stop();
+    if (interrupted) return; // déjà pris en charge par l'interruption ci-dessus
+    if (window.voiceMode) vmListen();
+  });
+}
 function vmOpen(){
   if (!recogSupported){ alert("Le mode vocal n'est pas disponible sur ce navigateur.\nUtilise Google Chrome (ordinateur ou Android)."); return; }
   window.voiceMode = true; if (voiceOverlay) voiceOverlay.hidden = false; vmListen();

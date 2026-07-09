@@ -515,30 +515,79 @@ async function generateImageOpenAI({ prompt, quality, size, refData, refMediaTyp
   return Buffer.from(b64, 'base64');
 }
 
-// Construit un flyer au format PowerPoint portrait : photo de fond (générée par IA) + texte éditable par-dessus (modifiable dans Canva/PowerPoint)
-async function buildFlyerPptx({ imageBuffer, title, subtitle, details, accent }) {
+// Place l'image générée (texte et design déjà composés par l'IA) dans un unique slide PowerPoint,
+// en un seul objet image déplaçable/redimensionnable/remplaçable (import possible dans Canva)
+// Flyer soigné : fond généré par IA + titre/sous-titre/infos en texte éditable + logo en élément séparé
+// (chaque élément reste déplaçable/redimensionnable indépendamment dans PowerPoint/Canva)
+async function buildFlyerPptx({ imageBuffer, title, kicker, subtitle, details, accent, logoBuffer, logoMediaType }) {
   const pptxgen = require('pptxgenjs');
   const pres = new pptxgen();
-  pres.defineLayout({ name: 'FLYER', width: 8.5, height: 11 });
+  const W = 8.5, H = 12.75; // portrait 2:3, format affiche
+  pres.defineLayout({ name: 'FLYER', width: W, height: H });
   pres.layout = 'FLYER';
   const ACC = (typeof accent === 'string' && /^[0-9a-fA-F]{6}$/.test(accent)) ? accent.toUpperCase() : 'C15F3C';
+  const ACCD = darken(ACC, 0.55); // teinte foncée de la couleur de marque (pour un dégradé coloré, pas juste gris/noir)
   const s = pres.addSlide();
-  s.background = { color: '111111' };
+  s.background = { color: '0B0B0F' };
   const imgB64 = 'data:image/png;base64,' + imageBuffer.toString('base64');
-  s.addImage({ data: imgB64, x: 0, y: 0, w: 8.5, h: 11, sizing: { type: 'cover', w: 8.5, h: 11 } });
-  // Bandeau semi-opaque en bas pour la lisibilité du texte (forme éditable indépendamment de la photo)
-  s.addShape('rect', { x: 0, y: 7.3, w: 8.5, h: 3.7, fill: { color: '000000', transparency: 32 } });
-  let y = 7.7;
-  s.addShape('rect', { x: 0.55, y, w: 0.9, h: 0.09, fill: { color: ACC } });
-  y += 0.3;
-  s.addText((title || 'Titre').toString(), { x: 0.5, y, w: 7.5, h: 1.1, fontSize: 34, bold: true, color: 'FFFFFF', fontFace: 'Arial' });
-  y += 1.15;
-  if (subtitle) { s.addText(String(subtitle), { x: 0.5, y, w: 7.5, h: 0.55, fontSize: 16, color: 'FFFFFF', italic: true, fontFace: 'Arial' }); y += 0.6; }
+  s.addImage({ data: imgB64, x: 0, y: 0, w: W, h: H, sizing: { type: 'cover', w: W, h: H } });
+
+  // Dégradé progressif teinté (mélange noir + couleur de marque) plutôt qu'un gris plat
+  const gradTop = H * 0.56, gradH = H * 0.44, steps = 18;
+  for (let i = 0; i < steps; i++) {
+    const t = i / (steps - 1);
+    const opacity = Math.round(t * 82);
+    s.addShape('rect', { x: 0, y: gradTop + (gradH / steps) * i, w: W, h: (gradH / steps) + 0.02, fill: { color: ACCD, transparency: 100 - opacity } });
+  }
+
+  // Ruban en forme de bannière (pas un simple rectangle) pour le kicker
+  s.addShape('chevron', { x: 0, y: 0.5, w: 2.9, h: 0.55, fill: { color: ACC }, line: { type: 'none' } });
+  s.addText((kicker || 'ÉVÉNEMENT').toString().toUpperCase(), { x: 0.15, y: 0.5, w: 2.35, h: 0.55, align: 'center', valign: 'middle', fontSize: 13, bold: true, color: 'FFFFFF', charSpacing: 1.5, fontFace: 'Montserrat' });
+
+  // Logo (si fourni) : élément à part entière, déplaçable/redimensionnable indépendamment du fond
+  if (logoBuffer) {
+    const ext = (logoMediaType || '').includes('png') ? 'png' : 'jpeg';
+    const logoUri = 'data:' + (logoMediaType || 'image/png') + ';base64,' + logoBuffer.toString('base64');
+    s.addImage({ data: logoUri, x: W - 1.9, y: 0.5, w: 1.35, h: 1.35, sizing: { type: 'contain', w: 1.35, h: 1.35 } });
+  }
+
+  const textShadow = { type: 'outer', color: '000000', opacity: 0.55, blur: 6, offset: 3, angle: 90 };
+  let y = H * 0.62;
+  s.addShape('rect', { x: 0.55, y, w: 1.0, h: 0.1, fill: { color: ACC } });
+  y += 0.28;
+  s.addText((title || 'Titre').toString(), { x: 0.5, y, w: W - 1, h: 1.3, fontSize: 40, bold: true, color: 'FFFFFF', fontFace: 'Montserrat', shadow: textShadow });
+  y += 1.35;
+  if (subtitle) { s.addText(String(subtitle), { x: 0.5, y, w: W - 1, h: 0.55, fontSize: 16.5, color: 'F2F2F2', italic: true, fontFace: 'Montserrat', shadow: textShadow }); y += 0.65; }
+
+  // Infos pratiques en pilules colorées
   const lines = Array.isArray(details) ? details.filter(Boolean) : [];
   if (lines.length) {
-    const txt = lines.map(l => ({ text: '●  ' + String(l), options: { breakLine: true, fontSize: 14.5, color: 'FFFFFF', bold: false } }));
-    s.addText(txt, { x: 0.5, y, w: 7.5, h: 1.3, fontFace: 'Arial', lineSpacingMultiple: 1.35 });
+    const rowH = 0.48;
+    lines.forEach(l => {
+      s.addShape('roundRect', { x: 0.5, y: y + 0.02, w: 0.36, h: 0.36, rectRadius: 0.18, fill: { color: ACC } });
+      s.addText('✓', { x: 0.5, y: y + 0.02, w: 0.36, h: 0.36, align: 'center', valign: 'middle', fontSize: 13, bold: true, color: 'FFFFFF' });
+      s.addText(String(l), { x: 0.98, y, w: W - 1.5, h: rowH, fontSize: 14.5, color: 'FFFFFF', valign: 'middle', fontFace: 'Montserrat' });
+      y += rowH + 0.1;
+    });
   }
+
+  const token = crypto.randomBytes(6).toString('hex');
+  const fileName = 'flyer-' + token + '.pptx';
+  await pres.writeFile({ fileName: path.join(GEN_DIR, fileName) });
+  return { url: '/download/' + fileName, fileName };
+}
+
+// Place une image déjà entièrement composée (texte inclus, façon poster fini) dans un pptx : un seul objet déplaçable/redimensionnable
+async function wrapImageInPptx(imageBuffer, pxWidth, pxHeight) {
+  const pptxgen = require('pptxgenjs');
+  const pres = new pptxgen();
+  const W = 10;
+  const H = Math.round((W * ((pxHeight || 1536) / (pxWidth || 1024))) * 100) / 100;
+  pres.defineLayout({ name: 'FLYER', width: W, height: H });
+  pres.layout = 'FLYER';
+  const s = pres.addSlide();
+  const imgB64 = 'data:image/png;base64,' + imageBuffer.toString('base64');
+  s.addImage({ data: imgB64, x: 0, y: 0, w: W, h: H });
   const token = crypto.randomBytes(6).toString('hex');
   const fileName = 'flyer-' + token + '.pptx';
   await pres.writeFile({ fileName: path.join(GEN_DIR, fileName) });
@@ -978,15 +1027,16 @@ app.post('/api/chat', requireAuth, async (req, res) => {
     });
     tools.push({
       name: 'generate_flyer',
-      description: "Utilise cet outil PAR DÉFAUT pour un flyer, une affiche, un poster promotionnel ou événementiel — car ça produit un vrai fichier PowerPoint (photo de fond générée par IA + titre/sous-titre/infos en texte réellement éditable par-dessus), que l'utilisateur peut ensuite ouvrir et modifier dans PowerPoint OU l'importer dans Canva pour déplacer/modifier chaque élément. Le prompt d'image ne doit décrire QUE le visuel de fond (scène, ambiance, couleurs) et ne doit JAMAIS demander de texte écrit dans l'image (le texte est ajouté séparément par-dessus, en vrai texte éditable) : précise toujours 'no text, no words, no writing' dans le prompt.",
+      description: "Utilise cet outil PAR DÉFAUT pour un flyer, une affiche ou un poster événementiel/promotionnel — car l'utilisateur veut ensuite pouvoir déplacer/modifier chaque élément (texte, logo) dans PowerPoint ou Canva. Le résultat combine : une photo/ambiance de fond générée par IA (SANS texte dedans), un titre et des infos pratiques en VRAI texte éditable par-dessus, et le logo de l'utilisateur (s'il en a joint un) posé comme élément séparé déplaçable. Le prompt d'image ne doit décrire QUE l'ambiance/le décor (scène, lumière, couleurs), avec une zone naturellement plus sombre dans le tiers inférieur pour que le texte reste lisible, et ne doit JAMAIS inclure de texte à écrire dans l'image (ajoute toujours 'no text, no words, no writing' à la fin du prompt). N'utilise PAS cet outil si l'utilisateur veut juste une belle image figée sans avoir besoin de la modifier ensuite : utilise generate_image dans ce cas.",
       input_schema: {
         type: 'object',
         properties: {
-          image_prompt: { type: 'string', description: "Description du VISUEL DE FOND uniquement, en anglais, sans aucun texte à afficher dans l'image (ajoute 'no text, no words' à la fin)." },
+          image_prompt: { type: 'string', description: "Description de l'ambiance/du décor de fond uniquement, en anglais, avec une zone sombre en bas pour la lisibilité du texte, sans aucun texte à afficher (ajoute 'no text, no words' à la fin)." },
           title: { type: 'string', description: 'Titre principal du flyer (grand texte)' },
+          kicker: { type: 'string', description: 'Court mot-étiquette dans le ruban en haut (ex: "MATCH", "CONCERT"), 1-2 mots max' },
           subtitle: { type: 'string', description: 'Sous-titre ou accroche (optionnel)' },
-          details: { type: 'array', items: { type: 'string' }, description: 'Lignes d\'infos pratiques (date, lieu, prix, horaire...), chacune affichée avec une puce' },
-          accent: { type: 'string', description: 'Couleur de marque en hexa SANS # (ex: C0392B)' }
+          details: { type: 'array', items: { type: 'string' }, description: 'Lignes d\'infos pratiques (date, lieu, prix...), chacune affichée en pilule' },
+          accent: { type: 'string', description: 'Couleur de marque en hexa SANS # (ex: C0392B), utilisée pour le ruban, le dégradé et les pilules' }
         },
         required: ['image_prompt', 'title']
       }
@@ -1102,18 +1152,19 @@ app.post('/api/chat', requireAuth, async (req, res) => {
       }
     }
 
-    // L'IA a-t-elle décidé de créer un flyer (photo de fond IA + texte éditable, format PowerPoint) ?
+    // L'IA a-t-elle décidé de créer un flyer (même qualité que generate_image, livré en PowerPoint modifiable) ?
     const flyerUse = (data.content || []).find(b => b.type === 'tool_use' && b.name === 'generate_flyer');
     if (flyerUse) {
       try {
         const quality = u.plan === 'pro' ? 'high' : 'medium';
         const inp = flyerUse.input || {};
-        const imagePrompt = (inp.image_prompt || '') + ', no text, no words, no writing, no letters';
-        const buf = await generateImageOpenAI({ prompt: imagePrompt, quality, size: '1024x1536' });
-        const { url } = await buildFlyerPptx({ imageBuffer: buf, title: inp.title, subtitle: inp.subtitle, details: inp.details, accent: inp.accent });
+        const imagePrompt = (inp.image_prompt || '') + ', no text, no words, no writing, no letters, no logos';
+        const buf = await generateImageOpenAI({ prompt: imagePrompt, quality, size: '1024x1536' }); // pas de refData : le logo reste un élément à part, pas fondu dans le fond
+        const logoBuffer = refImage ? Buffer.from(refImage.data, 'base64') : null;
+        const { url } = await buildFlyerPptx({ imageBuffer: buf, title: inp.title, kicker: inp.kicker, subtitle: inp.subtitle, details: inp.details, accent: inp.accent, logoBuffer, logoMediaType: refImage && refImage.media_type });
         const pre = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n').trim();
         const qualityNote = u.plan === 'pro' ? '' : '\n\n💡 Qualité "standard" (forfait gratuit). Passe au Pro pour la meilleure qualité d\'image.';
-        const reply = (pre ? pre + '\n\n' : '') + 'Voilà ton flyer ✨ (fichier PowerPoint, modifiable directement ou importable dans Canva)\n\n[📊 Télécharger le flyer](' + url + ')' + qualityNote;
+        const reply = (pre ? pre + '\n\n' : '') + 'Voilà ton flyer ✨ (fichier PowerPoint : chaque élément — fond, titre, texte, logo — est déplaçable/modifiable séparément, et importable dans Canva)\n\n[📊 Télécharger le flyer](' + url + ')' + qualityNote;
         db.prepare('INSERT INTO messages (user_id, conversation_id, role, content, created_at) VALUES (?,?,?,?,?)').run(u.id, convId, 'user', storedUser, now);
         db.prepare('INSERT INTO messages (user_id, conversation_id, role, content, created_at) VALUES (?,?,?,?,?)').run(u.id, convId, 'assistant', reply, now + 1);
         db.prepare('UPDATE users SET msg_used = msg_used + 1 WHERE id = ?').run(u.id);

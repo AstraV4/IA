@@ -5,13 +5,14 @@
 <link rel="stylesheet" href="/static/css/style.css" />
 <script>try{if(localStorage.getItem('theme')==='dark')document.documentElement.setAttribute('data-theme','dark');}catch(e){}</script>
 </head><body class="chat-body">
+<div class="grain" aria-hidden="true"></div>
 <div class="app">
   <div class="side-overlay" id="side-overlay"></div>
   <aside class="side" id="side">
     <div class="side-top">
       <a class="logo" href="/"><span class="m"></span><%= siteName %></a>
     </div>
-    <button class="new" id="new-conv"><span class="plus">＋</span> Nouvelle conversation</button>
+    <button class="new ripple-host" id="new-conv"><span class="plus">＋</span> Nouvelle conversation</button>
     <a class="side-link nav-link" href="/correction">✍️ Correction de texte</a>
     <input class="conv-search" id="conv-search" placeholder="🔎 Rechercher…" />
     <div class="lbl">Récents</div>
@@ -28,7 +29,6 @@
       <% }) %>
     </div>
     <div class="side-foot">
-      <button class="side-link" type="button" id="theme-toggle">🌙 Thème sombre</button>
       <button class="side-link" type="button" id="export-btn">⬇️ Exporter la conversation</button>
       <% if (isAdmin) { %><a class="side-link" href="/admin">🛠️ Espace admin</a><% } %>
       <div class="quota-mini">
@@ -45,9 +45,13 @@
   </aside>
 
   <main class="main">
-    <div class="main-top"><button class="menu-btn" id="menu-btn" title="Menu">☰</button></div>
+    <div class="main-top">
+      <button class="menu-btn" id="menu-btn" title="Menu">☰</button>
+      <button class="icon-btn ripple-host" id="theme-toggle" title="Changer de thème">◑</button>
+    </div>
 
-    <div class="thread" id="messages">
+    <div class="thread" id="thread">
+      <div class="col" id="messages">
       <% if (!history.length) { %>
         <div class="empty" id="empty">
           <div class="empty-icon">✦</div>
@@ -65,9 +69,10 @@
         <% if (m.role === 'user') { %>
           <div class="turn user"><div class="bubble"><%= m.content %></div></div>
         <% } else { %>
-          <div class="turn ai"><div class="av">✦</div><div class="body md-raw"><%= m.content %></div></div>
+          <div class="turn ai done"><div class="fil"><span class="node"></span><i></i></div><div class="body md-raw"><%= m.content %></div></div>
         <% } %>
       <% }) %>
+      </div>
     </div>
 
     <div class="composer-wrap">
@@ -77,6 +82,7 @@
         <button type="button" id="preview-remove" title="Retirer">✕</button>
       </div>
       <div class="voice-bar" id="voice-bar" hidden><span class="dot"></span> Je t'écoute… <button type="button" id="voice-stop">Stop</button></div>
+      <div class="chalo-wrap" id="chalo-wrap">
       <div class="composer">
         <textarea id="input" placeholder="Écris ton message à <%= siteName %>…" rows="1"></textarea>
         <div class="c-row">
@@ -91,6 +97,8 @@
             <button class="send" id="send" title="Envoyer">➤</button>
           </div>
         </div>
+      </div>
+      <div class="halo"></div>
       </div>
       <div class="hint"><%= siteName %> peut faire des erreurs. Vérifie les informations importantes.</div>
     </div>

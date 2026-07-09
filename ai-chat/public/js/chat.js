@@ -1,5 +1,6 @@
 const $ = (id) => document.getElementById(id);
-const thread = $('messages');
+const thread = $('thread');
+const messages = $('messages');
 const input = $('input');
 const send = $('send');
 const fileInput = $('file');
@@ -14,11 +15,26 @@ let pendingFile = null;
 /* ---------- Thème clair / sombre ---------- */
 const themeBtn = document.getElementById('theme-toggle');
 function applyTheme(t){
-  if(t==='dark'){ document.documentElement.setAttribute('data-theme','dark'); if(themeBtn) themeBtn.textContent='☀️ Thème clair'; }
-  else { document.documentElement.removeAttribute('data-theme'); if(themeBtn) themeBtn.textContent='🌙 Thème sombre'; }
+  if(t==='dark'){ document.documentElement.setAttribute('data-theme','dark'); if(themeBtn) themeBtn.title='Thème clair'; }
+  else { document.documentElement.removeAttribute('data-theme'); if(themeBtn) themeBtn.title='Thème sombre'; }
 }
 try{ applyTheme(localStorage.getItem('theme')||'light'); }catch(e){}
-if(themeBtn) themeBtn.addEventListener('click', ()=>{ const dark=document.documentElement.getAttribute('data-theme')!=='dark'; try{localStorage.setItem('theme',dark?'dark':'light');}catch(e){} applyTheme(dark?'dark':'light'); });
+const prefersReducedMotion = () => window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+if(themeBtn) themeBtn.addEventListener('click', (e)=>{
+  const dark = document.documentElement.getAttribute('data-theme')!=='dark';
+  const doSwitch = () => { try{localStorage.setItem('theme',dark?'dark':'light');}catch(err){} applyTheme(dark?'dark':'light'); };
+  if(prefersReducedMotion() || !document.startViewTransition){ doSwitch(); return; }
+  const r = themeBtn.getBoundingClientRect();
+  const x = r.left + r.width/2, y = r.top + r.height/2;
+  const radius = Math.hypot(Math.max(x, innerWidth-x), Math.max(y, innerHeight-y));
+  document.startViewTransition(doSwitch).ready.then(()=>{
+    document.documentElement.animate(
+      { clipPath: [`circle(0px at ${x}px ${y}px)`, `circle(${radius}px at ${x}px ${y}px)`] },
+      { duration: 550, easing: 'cubic-bezier(.22,1,.36,1)', pseudoElement: '::view-transition-new(root)' }
+    );
+  });
+});
 
 /* ---------- Recherche de conversations ---------- */
 const searchInput = document.getElementById('conv-search');
@@ -89,13 +105,13 @@ function closeSide(){ side.classList.remove('open'); overlay.classList.remove('s
 /* ---------- Nouvelle conversation ---------- */
 $('new-conv').addEventListener('click', () => {
   window.CURRENT = null;
-  thread.innerHTML = EMPTY_HTML;
+  messages.innerHTML = EMPTY_HTML;
   document.querySelectorAll('.conv.active').forEach(c => c.classList.remove('active'));
   clearFile(); closeSide(); input.focus();
 });
 
 /* Clic sur une suggestion -> remplit le champ */
-thread.addEventListener('click', (e) => {
+messages.addEventListener('click', (e) => {
   const s = e.target.closest('.sug');
   if (!s) return;
   input.value = s.getAttribute('data-text') || '';
@@ -193,20 +209,68 @@ function addUser(text, file){
   if(file && file.kind==='image' && file.url){ const im=document.createElement('img'); im.src=file.url; im.className='msg-img'; b.appendChild(im); }
   else if(file){ const chip=document.createElement('div'); chip.className='filechip'; chip.innerHTML='<span class="fi">'+(file.kind==='pdf'?'📄':'📎')+'</span><span class="fn"></span>'; chip.querySelector('.fn').textContent=file.name||'fichier'; b.appendChild(chip); }
   if(text){ const t=document.createElement('div'); t.textContent=text; b.appendChild(t); }
-  turn.appendChild(b); thread.appendChild(turn); thread.scrollTop=thread.scrollHeight;
+  turn.appendChild(b); messages.appendChild(turn); thread.scrollTop=thread.scrollHeight;
 }
+
+/* Découpe un HTML déjà rendu en tokens sûrs à révéler progressivement :
+   chaque balise complète (<img ...>, <a ...>...</a>, etc.) est un bloc atomique qu'on ne coupe jamais,
+   seul le texte entre les balises est découpé en mots. Générique : marche avec n'importe quel markdown rendu. */
+function tokenizeHtml(html){
+  const tokens=[]; let i=0, buf='';
+  while(i<html.length){
+    const ch=html[i];
+    if(ch==='<'){
+      if(buf){ tokens.push(buf); buf=''; }
+      let j=html.indexOf('>', i); if(j===-1) j=html.length-1;
+      tokens.push(html.slice(i, j+1)); i=j+1;
+    } else if(ch===' '||ch==='\n'){
+      buf+=ch; tokens.push(buf); buf=''; i++;
+    } else { buf+=ch; i++; }
+  }
+  if(buf) tokens.push(buf);
+  return tokens;
+}
+
 function addAI(text){
   const turn=document.createElement('div'); turn.className='turn ai';
-  turn.innerHTML='<div class="av">✦</div>';
-  const body=document.createElement('div'); body.className='body'; body.innerHTML=renderMarkdown(text);
-  addCopy(body, text);
-  turn.appendChild(body); thread.appendChild(turn); thread.scrollTop=thread.scrollHeight;
+  turn.innerHTML='<div class="fil"><span class="node live"></span><i></i></div>';
+  const body=document.createElement('div'); body.className='body';
+  turn.appendChild(body);
+  messages.appendChild(turn); thread.scrollTop=thread.scrollHeight;
+
+  const node=turn.querySelector('.node'), fil=turn.querySelector('.fil i');
+  function growFil(){ fil.style.height = Math.max(0, body.offsetHeight - 8) + 'px'; }
+  function finish(){
+    node.classList.remove('live'); turn.classList.add('done'); growFil();
+    addCopy(body, text); thread.scrollTop = thread.scrollHeight;
+  }
+
+  const finalHtml = renderMarkdown(text);
+  if (prefersReducedMotion()) { body.innerHTML = finalHtml; finish(); return body; }
+
+  const tokens = tokenizeHtml(finalHtml);
+  const duration = Math.min(2200, Math.max(280, text.length * 4)); // borné : reste rapide même pour une longue réponse
+  const startT = performance.now();
+  const cursor = document.createElement('span'); cursor.className='type-cursor';
+  function step(now){
+    const t = Math.min(1, (now - startT) / duration);
+    const eased = 1 - Math.pow(1 - t, 2);
+    const n = Math.max(1, Math.round(tokens.length * eased));
+    body.innerHTML = tokens.slice(0, n).join('');
+    body.appendChild(cursor);
+    growFil(); thread.scrollTop = thread.scrollHeight;
+    if (t < 1) requestAnimationFrame(step);
+    else { cursor.remove(); body.innerHTML = finalHtml; finish(); }
+  }
+  requestAnimationFrame(step);
   return body;
 }
+
 function addTyping(){
   const turn=document.createElement('div'); turn.className='turn ai typing-row';
-  turn.innerHTML='<div class="av">✦</div><div class="typing"><span></span><span></span><span></span></div>';
-  thread.appendChild(turn); thread.scrollTop=thread.scrollHeight; return turn;
+  turn.innerHTML='<div class="fil"><span class="node live"></span><i></i></div>'+
+    '<div class="body"><span class="skel" style="width:78%"></span><span class="skel" style="width:52%"></span></div>';
+  messages.appendChild(turn); thread.scrollTop=thread.scrollHeight; return turn;
 }
 function addConvToSidebar(id,title){
   document.querySelectorAll('.conv.active').forEach(c=>c.classList.remove('active'));
@@ -217,6 +281,11 @@ function addConvToSidebar(id,title){
 }
 
 input.addEventListener('input', () => { input.style.height='auto'; input.style.height=Math.min(input.scrollHeight,150)+'px'; });
+const chaloWrap = $('chalo-wrap');
+if (chaloWrap) {
+  input.addEventListener('focus', () => chaloWrap.classList.add('hot'));
+  input.addEventListener('blur', () => { if (!input.value) chaloWrap.classList.remove('hot'); });
+}
 
 let currentAbortController = null;
 
@@ -227,6 +296,7 @@ async function sendMessage(){
   const file=pendingFile;
   addUser(text,file);
   input.value=''; input.style.height='auto'; clearFile();
+  if (chaloWrap) chaloWrap.classList.remove('hot');
   setSendState('stop');
   const typing=addTyping();
   if(window.voiceMode) setVoiceStatus('thinking');
@@ -268,7 +338,7 @@ thread.scrollTop=thread.scrollHeight;
 
 /* ---------- Export de la conversation ---------- */
 $('export-btn').addEventListener('click', () => {
-  const turns = [...thread.querySelectorAll('.turn')];
+  const turns = [...messages.querySelectorAll('.turn')];
   if (!turns.length) { alert('Rien à exporter pour le moment.'); return; }
   let md = '# Conversation\n\n';
   turns.forEach(t => {
@@ -377,3 +447,30 @@ function vmClose(){
 }
 const vmBtn = $('voice-mode'); if (vmBtn){ vmBtn.addEventListener('click', vmOpen); if (!recogSupported) vmBtn.style.opacity = '.5'; }
 const vmCloseBtn = $('voice-close'); if (vmCloseBtn) vmCloseBtn.addEventListener('click', vmClose);
+
+/* ---------- Bouton d'envoi magnétique (suit légèrement le curseur, ordinateur uniquement) ---------- */
+if (send && window.matchMedia && window.matchMedia('(pointer: fine)').matches && !prefersReducedMotion()) {
+  send.addEventListener('pointermove', (e) => {
+    const r = send.getBoundingClientRect();
+    const mx = (e.clientX - r.left - r.width / 2) * 0.32;
+    const my = (e.clientY - r.top - r.height / 2) * 0.32;
+    send.style.transform = `translate(${mx.toFixed(1)}px,${my.toFixed(1)}px) scale(1.06)`;
+  });
+  send.addEventListener('pointerleave', () => { send.style.transform = ''; });
+}
+
+/* ---------- Ondulation au clic sur les boutons marqués .ripple-host ---------- */
+document.querySelectorAll('.ripple-host').forEach(btn => {
+  btn.addEventListener('click', (e) => {
+    if (prefersReducedMotion()) return;
+    const r = btn.getBoundingClientRect();
+    const d = Math.max(r.width, r.height) * 1.6;
+    const span = document.createElement('span');
+    span.className = 'ripple';
+    span.style.width = span.style.height = d + 'px';
+    span.style.left = (e.clientX - r.left - d / 2) + 'px';
+    span.style.top = (e.clientY - r.top - d / 2) + 'px';
+    btn.appendChild(span);
+    span.addEventListener('animationend', () => span.remove());
+  });
+});

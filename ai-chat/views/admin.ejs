@@ -4,41 +4,47 @@
 <title>Admin · <%= siteName %></title>
 <link rel="stylesheet" href="/static/css/style.css" />
 <style>
-  .admin{max-width:800px;margin:5vh auto;padding:0 16px}
-  table{width:100%;border-collapse:collapse;margin-top:18px;background:var(--panel);border:1px solid var(--border);border-radius:14px;overflow:hidden}
-  th,td{padding:12px 14px;text-align:left;font-size:.9rem;border-bottom:1px solid var(--border)}
-  th{color:var(--dim);font-weight:600;font-size:.78rem;text-transform:uppercase;letter-spacing:.04em}
+  .admin{max-width:920px;margin:5vh auto;padding:0 16px 60px;position:relative;z-index:1}
+  .admin h2{font-family:'Instrument Serif',serif;font-weight:400;font-size:2rem;margin-bottom:6px}
+  .admin>p{color:var(--ink-3);margin-top:2px;font-size:.92rem}
+  .model-card{margin:18px 0;padding:13px 17px;background:var(--panel);border:1px solid var(--line-2);border-radius:var(--r);font-size:.92rem;box-shadow:var(--sh-1)}
+  .model-card b{color:var(--cobalt)}
+  table{width:100%;border-collapse:collapse;margin-top:18px;background:var(--panel);border:1px solid var(--line-2);border-radius:var(--r-lg);overflow:hidden;box-shadow:var(--sh-1)}
+  th,td{padding:12px 14px;text-align:left;font-size:.87rem;border-bottom:1px solid var(--line-2)}
+  th{color:var(--ink-3);font-weight:600;font-size:.72rem;text-transform:uppercase;letter-spacing:.05em;background:var(--sunk)}
   tr:last-child td{border-bottom:none}
-  .mini{padding:7px 12px;font-size:.82rem;border-radius:9px}
+  tr:hover td{background:var(--sunk)}
+  .mini{padding:6px 11px;font-size:.78rem;border-radius:8px}
   .stat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:18px 0}
-  .stat{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:16px}
-  .stat-n{font-size:1.7rem;font-weight:700;color:var(--accent)}
-  .stat-l{color:var(--dim);font-size:.82rem;margin-top:2px}
-  .chart-card{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:18px;margin-bottom:8px}
-  .chart-title{color:var(--dim);font-size:.82rem;text-transform:uppercase;letter-spacing:.04em;font-weight:600;margin-bottom:16px}
+  .stat{background:var(--panel);border:1px solid var(--line-2);border-radius:var(--r-lg);padding:16px;box-shadow:var(--sh-1)}
+  .stat-n{font-family:'Instrument Serif',serif;font-size:1.9rem;font-weight:400;color:var(--cobalt)}
+  .stat-l{color:var(--ink-3);font-size:.8rem;margin-top:2px}
+  .chart-card{background:var(--panel);border:1px solid var(--line-2);border-radius:var(--r-lg);padding:18px;margin-bottom:8px;box-shadow:var(--sh-1)}
+  .chart-title{color:var(--ink-3);font-size:.78rem;text-transform:uppercase;letter-spacing:.05em;font-weight:600;margin-bottom:16px;font-family:'JetBrains Mono',monospace}
   .bars{display:flex;align-items:flex-end;gap:10px;height:150px}
   .bar-col{flex:1;display:flex;flex-direction:column;align-items:center;height:100%}
   .bar-wrap{flex:1;width:100%;display:flex;align-items:flex-end;justify-content:center}
-  .bar{width:66%;min-height:3px;background:linear-gradient(180deg,var(--accent2),var(--accent));border-radius:7px 7px 0 0;position:relative;display:flex;justify-content:center}
-  .bar-n{position:absolute;top:-18px;font-size:.74rem;color:var(--dim)}
-  .bar-l{color:var(--dim);font-size:.78rem;margin-top:6px}
+  .bar{width:60%;min-height:3px;background:var(--cobalt);border-radius:5px 5px 0 0;position:relative;display:flex;justify-content:center;transition:height .5s var(--ease)}
+  .bar-n{position:absolute;top:-18px;font-size:.72rem;color:var(--ink-3);font-family:'JetBrains Mono',monospace}
+  .bar-l{color:var(--ink-3);font-size:.76rem;margin-top:6px}
   @media(max-width:700px){.stat-grid{grid-template-columns:repeat(2,1fr)}}
 </style>
 </head><body>
+<div class="grain" aria-hidden="true"></div>
 <nav class="nav">
   <a class="brand" href="/"><span class="m"></span><%= siteName %></a>
   <div class="links"><a href="/chat">Chat</a><a href="/account">Mon compte</a></div>
 </nav>
 
 <div class="admin">
-  <h2>🛠️ Panneau admin</h2>
-  <p style="color:var(--dim);margin-top:6px">Quand quelqu'un t'ajoute sur Discord (<%= discordHandle %>), tu peux le passer en Pro ou réinitialiser son mot de passe ici.</p>
+  <h2>Panneau admin</h2>
+  <p>Quand quelqu'un t'ajoute sur Discord (<%= discordHandle %>), tu peux le passer en Pro ou réinitialiser son mot de passe ici.</p>
 
-  <div style="margin:14px 0;padding:12px 16px;background:var(--panel);border:1px solid var(--border);border-radius:12px;font-size:.95rem">
-    🤖 Modèle actuel : <b style="color:var(--accent)"><%= stats.model %></b>
-    <% if (/haiku/i.test(stats.model)) { %><span style="margin-left:8px;color:var(--dim)">— rapide et économique (Haiku)</span>
-    <% } else if (/sonnet/i.test(stats.model)) { %><span style="margin-left:8px;color:#2e7d50;font-weight:600">— équilibré et intelligent (Sonnet) ✅</span>
-    <% } else if (/opus/i.test(stats.model)) { %><span style="margin-left:8px;color:var(--accent);font-weight:600">— le plus puissant (Opus)</span>
+  <div class="model-card">
+    🤖 Modèle actuel : <b><%= stats.model %></b>
+    <% if (/haiku/i.test(stats.model)) { %><span style="margin-left:8px;color:var(--ink-3)">— rapide et économique (Haiku)</span>
+    <% } else if (/sonnet/i.test(stats.model)) { %><span style="margin-left:8px;color:var(--verd);font-weight:600">— équilibré et intelligent (Sonnet) ✅</span>
+    <% } else if (/opus/i.test(stats.model)) { %><span style="margin-left:8px;color:var(--cobalt);font-weight:600">— le plus puissant (Opus)</span>
     <% } %>
   </div>
 
@@ -54,7 +60,7 @@
   </div>
 
   <div class="chart-card">
-    <div class="chart-title">📈 Messages des 7 derniers jours</div>
+    <div class="chart-title">Messages des 7 derniers jours</div>
     <div class="bars">
       <% stats.days.forEach(function(d){ %>
         <div class="bar-col">
@@ -67,8 +73,8 @@
 
   <% if (notice) { %>
     <div class="ok" style="margin-top:16px">
-      🔑 Mot de passe temporaire pour <b><%= notice.email %></b> : <b style="font-family:monospace;font-size:1.05rem"><%= notice.temp %></b>
-      <div style="color:var(--dim);font-size:.85rem;margin-top:4px">Envoie-le-lui sur Discord. Il pourra le changer dans « Mon compte ».</div>
+      🔑 Mot de passe temporaire pour <b><%= notice.email %></b> : <b style="font-family:'JetBrains Mono',monospace;font-size:1.05rem"><%= notice.temp %></b>
+      <div style="color:var(--ink-3);font-size:.85rem;margin-top:4px">Envoie-le-lui sur Discord. Il pourra le changer dans « Mon compte ».</div>
     </div>
   <% } %>
 
@@ -105,7 +111,7 @@
             <button class="btn btn-danger mini" type="submit">🗑️ Supprimer</button>
           </form>
           <% } else { %>
-            <span style="color:var(--dim);font-size:.82rem">(toi)</span>
+            <span style="color:var(--ink-3);font-size:.82rem">(toi)</span>
           <% } %>
         </td>
       </tr>

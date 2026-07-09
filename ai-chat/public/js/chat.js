@@ -391,7 +391,7 @@ function listenOnce(onFinal, opts){
   opts = opts || {};
   if (!recogSupported) return false;
   if (listening) return true;
-  if (!opts.keepSpeaking) { try { if (window.speechSynthesis) window.speechSynthesis.cancel(); } catch(e){} }
+  if (!opts.keepSpeaking) { stopSpeaking(); }
   recog = new SR();
   recog.lang = 'fr-FR'; recog.interimResults = true; recog.maxAlternatives = 1; recog.continuous = false;
   let finalText = '';
@@ -429,7 +429,7 @@ const vStop = $('voice-stop'); if (vStop) vStop.addEventListener('click', stopLi
 
 /* Synthèse vocale */
 function pickFrVoice(){ try { const vs = window.speechSynthesis.getVoices() || []; return vs.find(v => /^fr/i.test(v.lang)) || null; } catch(e){ return null; } }
-function speakText(text, onEnd){
+function speakTextBrowser(text, onEnd){
   if (!('speechSynthesis' in window) || !text){ if (onEnd) onEnd(); return; }
   try {
     window.speechSynthesis.cancel();
@@ -439,6 +439,30 @@ function speakText(text, onEnd){
     u.onerror = () => { if (onEnd) onEnd(); };
     window.speechSynthesis.speak(u);
   } catch(e){ if (onEnd) onEnd(); }
+}
+let currentAudioEl = null;
+// Coupe la lecture en cours, qu'elle vienne de la voix IA (audio) ou de la voix du navigateur (speechSynthesis)
+function stopSpeaking(){
+  if (currentAudioEl){ try { currentAudioEl.pause(); currentAudioEl.src=''; } catch(e){} currentAudioEl = null; }
+  try { if ('speechSynthesis' in window) window.speechSynthesis.cancel(); } catch(e){}
+}
+// Voix IA (bien plus naturelle) via /api/tts ; si indisponible (pas de clé OpenAI, erreur réseau…), repli automatique sur la voix du navigateur
+async function speakText(text, onEnd){
+  const t = String(text || '').trim();
+  if (!t){ if (onEnd) onEnd(); return; }
+  try {
+    const r = await fetch('/api/tts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: t.slice(0, 4000) }) });
+    if (!r.ok) throw new Error('tts_unavailable');
+    const blob = await r.blob();
+    const url = URL.createObjectURL(blob);
+    const audio = new Audio(url);
+    currentAudioEl = audio;
+    const finish = () => { URL.revokeObjectURL(url); if (currentAudioEl === audio) currentAudioEl = null; if (onEnd) onEnd(); };
+    audio.onended = finish; audio.onerror = finish;
+    await audio.play();
+  } catch (e) {
+    speakTextBrowser(t, onEnd); // repli propre, le mode vocal continue de fonctionner sans clé OpenAI
+  }
 }
 function plainForSpeech(md){
   return String(md).replace(/```[\s\S]*?```/g,' bloc de code ').replace(/`([^`]+)`/g,'$1').replace(/\[([^\]]+)\]\([^)]+\)/g,'$1').replace(/[#>*_~|]/g,' ').replace(/\s+/g,' ').trim();
@@ -450,7 +474,7 @@ if (speakBtn){
     window.speakOn = !window.speakOn;
     speakBtn.classList.toggle('on', window.speakOn);
     try { localStorage.setItem('speak', window.speakOn ? '1' : '0'); } catch(e){}
-    if (!window.speakOn && 'speechSynthesis' in window) window.speechSynthesis.cancel();
+    if (!window.speakOn) stopSpeaking();
   });
 }
 
@@ -480,7 +504,7 @@ function vmSpeak(text){
   let interrupted = false;
   const watch = startBargeInWatch(function(t){
     interrupted = true;
-    try { window.speechSynthesis.cancel(); } catch(e){}
+    stopSpeaking();
     vmHandleUserUtterance(t);
   });
   speakText(text, function(){
@@ -495,7 +519,7 @@ function vmOpen(){
 }
 function vmClose(){
   window.voiceMode = false; if (voiceOverlay) voiceOverlay.hidden = true;
-  stopListening(); try { if (window.speechSynthesis) window.speechSynthesis.cancel(); } catch(e){}
+  stopListening(); stopSpeaking();
 }
 const vmBtn = $('voice-mode'); if (vmBtn){ vmBtn.addEventListener('click', vmOpen); if (!recogSupported) vmBtn.style.opacity = '.5'; }
 const vmCloseBtn = $('voice-close'); if (vmCloseBtn) vmCloseBtn.addEventListener('click', vmClose);

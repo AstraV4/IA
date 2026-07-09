@@ -887,6 +887,27 @@ async function buildPptx(spec) {
   return { title, url: '/download/' + fileName };
 }
 
+// Synthèse vocale de bonne qualité (voix IA OpenAI) pour le mode vocal et la lecture à voix haute
+app.post('/api/tts', requireAuth, async (req, res) => {
+  try {
+    if (!OPENAI_API_KEY) return res.status(501).json({ error: 'no_key' });
+    const text = String((req.body && req.body.text) || '').slice(0, 4000);
+    if (!text.trim()) return res.status(400).json({ error: 'empty' });
+    const r = await fetch('https://api.openai.com/v1/audio/speech', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + OPENAI_API_KEY, 'content-type': 'application/json' },
+      body: JSON.stringify({ model: 'tts-1', voice: 'shimmer', input: text, response_format: 'mp3' })
+    });
+    if (!r.ok) { const t = await r.text(); console.error('OpenAI TTS error', r.status, t); return res.status(502).json({ error: 'tts_failed' }); }
+    const buf = Buffer.from(await r.arrayBuffer());
+    res.set('Content-Type', 'audio/mpeg');
+    res.send(buf);
+  } catch (e) {
+    console.error('tts route error', e);
+    res.status(502).json({ error: 'tts_failed' });
+  }
+});
+
 app.post('/api/chat', requireAuth, async (req, res) => {
   const u = res.locals.me;
   ensurePeriod(u);

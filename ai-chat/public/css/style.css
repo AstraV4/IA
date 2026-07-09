@@ -395,3 +395,56 @@ html[data-theme="dark"] .ripple{background:rgba(255,255,255,.18)}
   .logo .m{animation:none}
   ::view-transition-old(root),::view-transition-new(root){animation:none !important}
 }
+
+/* ===================== Nouvelle passe d'animations "pro" (marche au tactile ET à la souris) ===================== */
+
+/* Retour tactile universel : sur mobile il n'y a pas de survol, ce :active est ce qui donne
+   l'impression qu'un bouton "répond" quand on appuie dessus. Volontairement discret (pas de rebond exagéré). */
+.btn,.pill,.side-link,.conv,.acct,.suggest-btn,.feat,.plan,.tag,.icon-btn,.act,.mini{
+  transition:transform .16s var(--spring),box-shadow .2s,background .16s,border-color .16s
+}
+.btn:active,.pill:active,.side-link:active,.conv:active,.acct:active,.suggest-btn:active,.tag:active,.icon-btn:active,.act:active{
+  transform:scale(.96)
+}
+.feat:active,.plan:active{transform:scale(.985)}
+
+/* Bulle utilisateur : entrée différente de la réponse IA (glisse depuis la droite, avec un léger rebond) */
+.turn.user{animation:riseUser .45s var(--spring) forwards}
+@keyframes riseUser{from{opacity:0;transform:translate(14px,8px) scale(.96)}to{opacity:1;transform:none}}
+@keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+
+/* Aperçu de fichier joint : apparition en pop plutôt qu'un simple fondu */
+.preview{animation:popIn .3s var(--spring) forwards}
+@keyframes popIn{from{opacity:0;transform:scale(.85)}to{opacity:1;transform:none}}
+
+/* Suggestions de l'écran vide : arrivent en cascade, une par une, pas toutes d'un bloc */
+.suggests .sug{opacity:0;animation:fadeUp .5s var(--ease) forwards}
+.suggests .sug:nth-child(1){animation-delay:.05s}
+.suggests .sug:nth-child(2){animation-delay:.13s}
+.suggests .sug:nth-child(3){animation-delay:.21s}
+.suggests .sug:nth-child(4){animation-delay:.29s}
+
+/* Barre de quota (sidebar) : la largeur change en douceur au lieu de sauter */
+#quota-fill{transition:width .5s var(--ease)}
+
+/* Bouton "Copier" : petite pulsation au moment où le texte passe à "Copié" */
+.copy-btn.copied{animation:copyPulse .35s var(--ease)}
+@keyframes copyPulse{0%{transform:scale(1)}45%{transform:scale(1.12)}100%{transform:scale(1)}}
+
+/* Conversations de la sidebar : légère cascade au chargement de la page (une seule fois) */
+.conv{opacity:0;animation:fadeUp .4s var(--ease) forwards}
+.conv:nth-child(1){animation-delay:.02s}.conv:nth-child(2){animation-delay:.06s}.conv:nth-child(3){animation-delay:.10s}
+.conv:nth-child(4){animation-delay:.14s}.conv:nth-child(5){animation-delay:.18s}.conv:nth-child(n+6){animation-delay:.20s}
+
+/* Bouton d'envoi : petit "pop" au clic, en plus du rétrécissement existant */
+.send.sent-pop{animation:sentPop .32s var(--spring)}
+@keyframes sentPop{0%{transform:scale(1)}40%{transform:scale(.82)}100%{transform:scale(1)}}
+
+/* Cartes fonctionnalités (page d'accueil) : légère élévation au survol souris, discrète au tactile */
+.feat{transition:transform .25s var(--spring),box-shadow .25s}
+
+@media (prefers-reduced-motion: reduce){
+  .turn.user,.preview,.suggests .sug,.conv{animation:none !important;opacity:1 !important;transform:none !important}
+  .copy-btn.copied,.send.sent-pop{animation:none !important}
+  .btn:active,.pill:active,.side-link:active,.conv:active,.acct:active,.suggest-btn:active,.tag:active,.icon-btn:active,.act:active,.feat:active,.plan:active{transform:none}
+}

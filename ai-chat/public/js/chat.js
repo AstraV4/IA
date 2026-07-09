@@ -90,7 +90,7 @@ function renderMarkdown(src){
 // Bouton "copier" sous une réponse
 function addCopy(bodyEl, raw){
   const b=document.createElement('button'); b.className='copy-btn'; b.type='button'; b.textContent='📋 Copier';
-  b.addEventListener('click',()=>{ navigator.clipboard.writeText(raw).then(()=>{ b.textContent='✓ Copié'; setTimeout(()=>b.textContent='📋 Copier',1500); }).catch(()=>{}); });
+  b.addEventListener('click',()=>{ navigator.clipboard.writeText(raw).then(()=>{ b.textContent='✓ Copié'; b.classList.add('copied'); setTimeout(()=>{ b.textContent='📋 Copier'; b.classList.remove('copied'); },1500); }).catch(()=>{}); });
   bodyEl.appendChild(b);
 }
 // Rendre le Markdown de l'historique au chargement
@@ -348,7 +348,7 @@ async function sendMessage(){
   setSendState('send'); input.focus();
 }
 function setSendState(state){
-  if(state==='stop'){ send.classList.add('is-stop'); send.title='Arrêter'; send.innerHTML='<span class="stop-sq"></span>'; }
+  if(state==='stop'){ send.classList.add('is-stop'); send.title='Arrêter'; send.innerHTML='<span class="stop-sq"></span>'; send.classList.add('sent-pop'); setTimeout(()=>send.classList.remove('sent-pop'),350); }
   else { send.classList.remove('is-stop'); send.disabled=false; send.title='Envoyer'; send.innerHTML='➤'; }
 }
 send.addEventListener('click', () => {

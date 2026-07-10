@@ -937,27 +937,6 @@ async function buildPptx(spec) {
 
 // Synthèse vocale de bonne qualité (voix IA OpenAI) pour le mode vocal et la lecture à voix haute
 // Retours 👍👎 sur une réponse (visibles côté admin, pour savoir ce qui plaît ou pas)
-// Export d'une conversation en PDF (en plus de l'export markdown déjà existant côté client)
-app.post('/api/export-pdf', requireAuth, (req, res) => {
-  try {
-    const PDFDocument = require('pdfkit');
-    const title = (req.body.title || 'Conversation').toString().slice(0, 120);
-    const turns = Array.isArray(req.body.turns) ? req.body.turns : [];
-    const doc = new PDFDocument({ margin: 50 });
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', 'attachment; filename="conversation.pdf"');
-    doc.pipe(res);
-    doc.fontSize(18).fillColor('#10131A').text(title);
-    doc.moveDown();
-    turns.forEach(t => {
-      doc.fontSize(9).fillColor('#8A909C').text(t.role === 'user' ? 'MOI' : 'IA');
-      doc.fontSize(12).fillColor('#10131A').text(String(t.text || '').slice(0, 6000));
-      doc.moveDown();
-    });
-    doc.end();
-  } catch (e) { console.error('export-pdf error', e); res.status(500).end('Erreur PDF'); }
-});
-
 app.post('/api/feedback', requireAuth, (req, res) => {
   const u = res.locals.me;
   const verdict = req.body.verdict === 'up' ? 'up' : 'down';

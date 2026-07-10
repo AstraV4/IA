@@ -506,21 +506,6 @@ $('export-btn').addEventListener('click', () => {
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'conversation.md';
   document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(a.href);
 });
-const exportPdfBtn = $('export-pdf-btn');
-if (exportPdfBtn) exportPdfBtn.addEventListener('click', async () => {
-  const turns = collectTurns();
-  if (!turns.length) { alert('Rien à exporter pour le moment.'); return; }
-  exportPdfBtn.textContent = '⏳ Génération…';
-  try {
-    const title = document.querySelector('.logo') ? 'Conversation' : 'Conversation';
-    const r = await fetch('/api/export-pdf', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ title, turns }) });
-    if (!r.ok) throw new Error('fail');
-    const blob = await r.blob();
-    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'conversation.pdf';
-    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(a.href);
-  } catch(e) { alert("Impossible de générer le PDF pour le moment."); }
-  exportPdfBtn.textContent = '📄 Exporter en PDF';
-});
 const shareBtn = $('share-btn');
 if (shareBtn) shareBtn.addEventListener('click', async () => {
   if (!window.CURRENT) { alert("Envoie au moins un message avant de partager cette conversation."); return; }

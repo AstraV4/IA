@@ -79,13 +79,15 @@
   <% } %>
 
   <table>
-    <tr><th>ID</th><th>E-mail</th><th>Forfait</th><th>Messages</th><th>Forfait</th><th>Mot de passe</th><th>Compte</th></tr>
+    <tr><th>ID</th><th>E-mail</th><th>Forfait</th><th>Messages</th><th>Aujourd'hui</th><th>Détail</th><th>Forfait</th><th>Mot de passe</th><th>Compte</th></tr>
     <% users.forEach(function(u){ %>
       <tr>
         <td><%= u.id %></td>
         <td><%= u.email %></td>
         <td><span class="tag <%= u.plan==='pro'?'pro':'' %>"><%= u.plan==='pro'?'PRO':'GRATUIT' %></span></td>
         <td><%= u.msg_used %> / <%= u.plan==='pro'?proLimit:freeLimit %></td>
+        <td style="text-align:center"><b style="color:var(--cobalt)"><%= u.msgsToday %></b></td>
+        <td><a class="btn mini" href="/admin/user/<%= u.id %>">👁️ Voir</a></td>
         <td>
           <form method="POST" action="/admin/setplan" style="display:inline">
             <input type="hidden" name="userId" value="<%= u.id %>" />

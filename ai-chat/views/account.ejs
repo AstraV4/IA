@@ -45,6 +45,17 @@
     <div style="color:var(--ink-3);font-size:.9rem"><%= used %> / <%= limit %> messages utilisés<% if (u.bonus_msgs) { %> (dont <b><%= u.bonus_msgs %></b> bonus parrainage 🎁)<% } %></div>
   </div>
 
+  <!-- Mémoire personnelle -->
+  <div class="sec">
+    <h3>🧠 Mémoire</h3>
+    <p style="color:var(--ink-3);font-size:.9rem">Dis-lui une fois pour toutes comment tu veux qu'elle se comporte — elle en tiendra compte dans toutes tes conversations, sans que tu aies à le répéter.</p>
+    <% if (mem === 'ok') { %><div class="notice">✅ Mémoire enregistrée !</div><% } %>
+    <form method="POST" action="/account/memory">
+      <textarea name="memory" rows="3" maxlength="1000" placeholder="Ex : réponds-moi de façon courte et directe. Je code en Python. Je suis débutant, évite le jargon technique." style="width:100%;background:var(--sunk);border:1px solid var(--line-2);color:var(--ink);border-radius:var(--r);padding:12px 13px;font-family:'Inter Tight',sans-serif;font-size:.9rem;resize:vertical;margin-top:6px"><%= u.memory || '' %></textarea>
+      <button class="btn-primary btn" type="submit" style="margin-top:10px">Enregistrer</button>
+    </form>
+  </div>
+
   <!-- Stats personnelles -->
   <div class="sec">
     <h3>📊 Mes statistiques</h3>

@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="fr"><head>
+<meta charset="UTF-8" /><meta name="viewport" content="width=device-width,initial-scale=1.0" />
+<title><%= target.email %> · Admin</title>
+<link rel="stylesheet" href="/static/css/style.css" />
+<style>
+  .au-wrap{max-width:1100px;margin:0 auto;padding:26px 20px 60px;position:relative;z-index:1}
+  .au-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:10px}
+  .au-head h2{font-family:'Instrument Serif',serif;font-weight:400;font-size:1.6rem}
+  .au-head .tag{margin-left:8px}
+  .au-body{display:grid;grid-template-columns:260px 1fr;gap:18px}
+  .au-convs{background:var(--panel);border:1px solid var(--line-2);border-radius:var(--r-lg);padding:10px;max-height:70vh;overflow-y:auto;box-shadow:var(--sh-1)}
+  .au-conv{display:block;padding:9px 11px;border-radius:9px;color:var(--ink-2);text-decoration:none;font-size:.85rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:1px}
+  .au-conv:hover{background:var(--sunk);color:var(--ink)}
+  .au-conv.active{background:var(--cobalt-soft);color:var(--cobalt);font-weight:600}
+  .au-msgs{background:var(--panel);border:1px solid var(--line-2);border-radius:var(--r-lg);padding:20px 24px;max-height:70vh;overflow-y:auto;box-shadow:var(--sh-1)}
+  .au-turn{margin-bottom:18px;padding-bottom:14px;border-bottom:1px solid var(--line-2)}
+  .au-turn:last-child{border-bottom:none}
+  .au-who{font-size:.72rem;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-3);font-family:'JetBrains Mono',monospace;margin-bottom:5px}
+  .au-who.user{color:var(--cobalt)}
+  .au-txt{font-size:.9rem;line-height:1.6;white-space:pre-wrap;word-wrap:break-word}
+  .au-empty{color:var(--ink-3);text-align:center;padding:40px}
+  @media(max-width:760px){.au-body{grid-template-columns:1fr}.au-convs{max-height:180px}}
+</style>
+</head><body>
+<div class="grain" aria-hidden="true"></div>
+<nav class="nav">
+  <a class="brand" href="/"><span class="m"></span><%= siteName %></a>
+  <div class="links"><a href="/admin">← Retour à l'admin</a></div>
+</nav>
+<div class="au-wrap">
+  <div class="au-head">
+    <h2><%= target.email %><span class="tag <%= target.plan==='pro'?'pro':'' %>"><%= target.plan==='pro'?'PRO':'GRATUIT' %></span></h2>
+    <div style="color:var(--ink-3);font-size:.85rem">Inscrit le <%= new Date(target.created_at).toLocaleDateString('fr-FR') %> · <%= target.msg_used %> messages ce mois-ci</div>
+  </div>
+
+  <% if (!conversations.length) { %>
+    <div class="au-empty">Cet utilisateur n'a encore aucune conversation.</div>
+  <% } else { %>
+  <div class="au-body">
+    <div class="au-convs">
+      <% conversations.forEach(function(c){ %>
+        <a class="au-conv <%= c.id===convId?'active':'' %>" href="/admin/user/<%= target.id %>?c=<%= c.id %>"><%= c.title || 'Conversation' %></a>
+      <% }) %>
+    </div>
+    <div class="au-msgs">
+      <% if (!msgs.length) { %>
+        <div class="au-empty">Aucun message dans cette conversation.</div>
+      <% } %>
+      <% msgs.forEach(function(m){ %>
+        <div class="au-turn">
+          <div class="au-who <%= m.role==='user'?'user':'' %>"><%= m.role==='user' ? '👤 Utilisateur' : '✦ IA' %> · <%= new Date(m.created_at).toLocaleString('fr-FR') %></div>
+          <div class="au-txt"><%= m.content %></div>
+        </div>
+      <% }) %>
+    </div>
+  </div>
+  <% } %>
+</div>
+</body></html>

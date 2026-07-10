@@ -23,11 +23,15 @@ if ('serviceWorker' in navigator) { window.addEventListener('load', () => naviga
     </div>
     <button class="new ripple-host" id="new-conv"><span class="plus">＋</span> Nouvelle conversation</button>
     <a class="side-link nav-link" href="/correction">✍️ Correction de texte</a>
+    <a class="side-link nav-link" href="/gallery">🖼️ Mes fichiers générés</a>
+    <button class="side-link" type="button" id="summarize-btn">🧾 Résumer cette conversation</button>
     <input class="conv-search" id="conv-search" placeholder="🔎 Rechercher…" />
     <div class="lbl">Récents</div>
     <div class="conv-list" id="conv-list">
       <% conversations.forEach(function(c){ %>
-        <a class="conv <%= c.id===currentId?'active':'' %> <%= c.pinned?'pinned':'' %>" href="/chat?c=<%= c.id %>" data-id="<%= c.id %>">
+        <% var prev = (c.lastMsg || '').toString().replace(/[#*`_>\[\]!]/g,'').replace(/\s+/g,' ').trim().slice(0,110); %>
+        <a class="conv <%= c.id===currentId?'active':'' %> <%= c.pinned?'pinned':'' %>" href="/chat?c=<%= c.id %>" data-id="<%= c.id %>" data-preview="<%= prev %>">
+          <span class="conv-swipe-bg" aria-hidden="true">🗑 Supprimer</span>
           <span class="conv-t"><%= c.title || 'Conversation' %></span>
           <span class="conv-actions">
             <button class="conv-pin <%= c.pinned?'on':'' %>" type="button" data-pin="<%= c.id %>" title="<%= c.pinned?'Désépingler':'Épingler' %>">📌</button>
@@ -96,6 +100,13 @@ if ('serviceWorker' in navigator) { window.addEventListener('load', () => naviga
         <button type="button" id="preview-remove" title="Retirer"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg></button>
       </div>
       <div class="voice-bar" id="voice-bar" hidden><span class="dot"></span> Je t'écoute… <button type="button" id="voice-stop">Stop</button></div>
+      <div class="intent-bar" id="intent-bar" hidden>
+        <span>Texte détecté — tu veux que je :</span>
+        <button data-act="Résume ce texte : ">Résume</button>
+        <button data-act="Corrige l'orthographe et la grammaire de ce texte : ">Corrige</button>
+        <button data-act="Traduis ce texte en anglais : ">Traduise</button>
+        <button class="intent-close" type="button" title="Fermer">✕</button>
+      </div>
       <div class="slash-menu" id="slash-menu" hidden>
         <button data-cmd="Fais-moi un flyer pour ">🖼️ /flyer <small>Créer un flyer</small></button>
         <button data-cmd="Fais-moi une présentation PowerPoint sur ">📊 /presentation <small>Créer un PowerPoint</small></button>

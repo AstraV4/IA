@@ -268,13 +268,36 @@ app.post('/reset', async (req, res) => {
 app.get('/chat', requireAuth, (req, res) => {
   const u = res.locals.me;
   ensurePeriod(u);
-  const conversations = db.prepare('SELECT id, title, updated_at, pinned FROM conversations WHERE user_id = ? ORDER BY pinned DESC, updated_at DESC').all(u.id);
+  const conversations = db.prepare(`
+    SELECT c.id, c.title, c.updated_at, c.pinned,
+      (SELECT content FROM messages m WHERE m.conversation_id = c.id ORDER BY m.id DESC LIMIT 1) AS lastMsg
+    FROM conversations c WHERE c.user_id = ? ORDER BY c.pinned DESC, c.updated_at DESC
+  `).all(u.id);
   let currentId = parseInt(req.query.c, 10) || (conversations[0] && conversations[0].id) || null;
   if (currentId && !conversations.some(c => c.id === currentId)) currentId = conversations[0] ? conversations[0].id : null;
   const history = currentId
     ? db.prepare('SELECT role, content FROM messages WHERE conversation_id = ? ORDER BY id ASC LIMIT 500').all(currentId)
     : [];
   res.render('chat', { conversations, currentId, history, used: u.msg_used, limit: limitFor(u.plan, u.bonus_msgs) });
+});
+
+// Galerie de tout ce que l'IA a généré (images, PowerPoint) pour cet utilisateur, tous fichiers confondus
+app.get('/gallery', requireAuth, (req, res) => {
+  const u = res.locals.me;
+  const rows = db.prepare("SELECT content, created_at FROM messages WHERE user_id = ? AND role = 'assistant' ORDER BY id DESC LIMIT 500").all(u.id);
+  const items = [];
+  const seen = new Set();
+  const reImg = /!\[[^\]]*\]\((\/download\/[^)\s]+)\)/g;
+  const reFile = /\[([^\]]*)\]\((\/download\/[^)\s]+\.(pptx|png|jpe?g))\)/g;
+  rows.forEach(r => {
+    let m;
+    reImg.lastIndex = 0;
+    while ((m = reImg.exec(r.content))) { if (!seen.has(m[1])) { seen.add(m[1]); items.push({ type: 'image', url: m[1], created_at: r.created_at }); } }
+    reFile.lastIndex = 0;
+    while ((m = reFile.exec(r.content))) { if (!seen.has(m[2])) { seen.add(m[2]); items.push({ type: m[3] === 'pptx' ? 'pptx' : 'image', url: m[2], label: m[1], created_at: r.created_at }); } }
+  });
+  items.sort((a, b) => b.created_at - a.created_at);
+  res.render('gallery', { items });
 });
 
 // --- API conversations ---
@@ -370,7 +393,7 @@ app.get('/account', requireAuth, (req, res) => {
   const u = res.locals.me;
   ensurePeriod(u);
   const stats = computeUserStats(u.id);
-  res.render('account', { u, used: u.msg_used, limit: limitFor(u.plan, u.bonus_msgs), plan: u.plan, pw: req.query.pw || null, stats, siteOrigin: baseUrl(req) });
+  res.render('account', { u, used: u.msg_used, limit: limitFor(u.plan, u.bonus_msgs), plan: u.plan, pw: req.query.pw || null, mem: req.query.mem || null, stats, siteOrigin: baseUrl(req) });
 });
 
 app.post('/account/model', requireAuth, (req, res) => {
@@ -380,6 +403,12 @@ app.post('/account/model', requireAuth, (req, res) => {
     db.prepare('UPDATE users SET model_pref = ? WHERE id = ?').run(pref, u.id);
   }
   res.redirect('/account');
+});
+app.post('/account/memory', requireAuth, (req, res) => {
+  const u = res.locals.me;
+  const memory = (req.body.memory || '').toString().slice(0, 1000);
+  db.prepare('UPDATE users SET memory = ? WHERE id = ?').run(memory, u.id);
+  res.redirect('/account?mem=ok');
 });
 
 app.post('/account/password', requireAuth, async (req, res) => {
@@ -1151,6 +1180,8 @@ app.post('/api/chat', requireAuth, async (req, res) => {
   let systemToUse = SYSTEM_PROMPT;
   if (mode === 'correct') {
     systemToUse = "Tu es un correcteur de français professionnel. On te donne un texte : tu dois le CORRIGER, pas répondre à son contenu. Corrige l'orthographe, la grammaire, la conjugaison, la ponctuation, la typographie, et améliore la formulation pour que ce soit clair et naturel, SANS changer le sens ni le ton. Réponds en Markdown, exactement dans ce format :\n\n## ✅ Texte corrigé\n\n(le texte entièrement corrigé)\n\n## ✍️ Principales corrections\n\n- (liste courte et simple des fautes ou reformulations importantes ; si tout était déjà correct, écris « Rien à signaler, ton texte était déjà correct 👍 »)";
+  } else if (u.memory && u.memory.trim()) {
+    systemToUse = SYSTEM_PROMPT + "\n\n--- Préférences personnelles de l'utilisateur (indiquées par lui-même, à respecter en priorité) ---\n" + u.memory.trim().slice(0, 1000);
   }
 
   try {
@@ -1307,10 +1338,29 @@ function computeStats() {
   return { model: MODEL, users, pro, verified, convs, msgsTotal, questions, msgsToday, msgs7, newUsers7, active7, days, maxDay };
 }
 
+function getUsersForAdmin() {
+  const startOfToday = new Date(); startOfToday.setHours(0, 0, 0, 0);
+  const todayTs = startOfToday.getTime();
+  return db.prepare(`
+    SELECT u.id, u.email, u.plan, u.msg_used, u.created_at,
+      (SELECT COUNT(*) FROM messages m WHERE m.user_id = u.id AND m.role = 'user' AND m.created_at >= ?) AS msgsToday
+    FROM users u ORDER BY u.id DESC
+  `).all(todayTs);
+}
+
 app.get('/admin', requireAuth, requireAdmin, (req, res) => {
-  const users = db.prepare('SELECT id, email, plan, msg_used, created_at FROM users ORDER BY id DESC').all();
-  res.render('admin', { users, proLimit: PRO_LIMIT, freeLimit: FREE_LIMIT, notice: null, stats: computeStats() });
+  res.render('admin', { users: getUsersForAdmin(), proLimit: PRO_LIMIT, freeLimit: FREE_LIMIT, notice: null, stats: computeStats() });
 });
+// Détail admin d'un utilisateur : ses conversations et tous ses messages, en lecture
+app.get('/admin/user/:id', requireAuth, requireAdmin, (req, res) => {
+  const target = db.prepare('SELECT id, email, plan, msg_used, created_at FROM users WHERE id = ?').get(req.params.id);
+  if (!target) return res.status(404).render('404');
+  const conversations = db.prepare('SELECT id, title, updated_at FROM conversations WHERE user_id = ? ORDER BY updated_at DESC').all(target.id);
+  const convId = parseInt(req.query.c, 10) || (conversations[0] && conversations[0].id) || null;
+  const msgs = convId ? db.prepare('SELECT role, content, created_at FROM messages WHERE conversation_id = ? ORDER BY id ASC').all(convId) : [];
+  res.render('admin-user', { target, conversations, convId, msgs });
+});
+
 app.post('/admin/resetpw', requireAuth, requireAdmin, async (req, res) => {
   const id = parseInt(req.body.userId, 10);
   const target = db.prepare('SELECT id, email FROM users WHERE id = ?').get(id);
@@ -1321,8 +1371,7 @@ app.post('/admin/resetpw', requireAuth, requireAdmin, async (req, res) => {
     db.prepare('UPDATE users SET password = ?, verified = 1 WHERE id = ?').run(hash, id);
     notice = { email: target.email, temp };
   }
-  const users = db.prepare('SELECT id, email, plan, msg_used, created_at FROM users ORDER BY id DESC').all();
-  res.render('admin', { users, proLimit: PRO_LIMIT, freeLimit: FREE_LIMIT, notice, stats: computeStats() });
+  res.render('admin', { users: getUsersForAdmin(), proLimit: PRO_LIMIT, freeLimit: FREE_LIMIT, notice, stats: computeStats() });
 });
 app.post('/admin/setplan', requireAuth, requireAdmin, (req, res) => {
   const id = parseInt(req.body.userId, 10);

@@ -83,6 +83,7 @@ if (!hasCol('users', 'referral_code')) db.exec("ALTER TABLE users ADD COLUMN ref
 if (!hasCol('users', 'referred_by'))   db.exec("ALTER TABLE users ADD COLUMN referred_by INTEGER");
 if (!hasCol('users', 'bonus_msgs'))    db.exec("ALTER TABLE users ADD COLUMN bonus_msgs INTEGER DEFAULT 0");
 if (!hasCol('users', 'model_pref'))    db.exec("ALTER TABLE users ADD COLUMN model_pref TEXT DEFAULT 'smart'");
+if (!hasCol('users', 'memory'))        db.exec("ALTER TABLE users ADD COLUMN memory TEXT DEFAULT ''");
 if (!hasCol('conversations', 'share_token')) db.exec("ALTER TABLE conversations ADD COLUMN share_token TEXT");
 db.exec(`CREATE TABLE IF NOT EXISTS feedback (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

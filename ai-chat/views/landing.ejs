@@ -102,4 +102,14 @@
 </section>
 
 <div class="foot">© <%= new Date().getFullYear() %> <%= siteName %> — <a href="/login">Connexion</a></div>
+<script>
+  // Parallax très léger du halo de fond, uniquement sur ordinateur (souris fine) et si les animations ne sont pas réduites
+  if (window.matchMedia && window.matchMedia('(pointer: fine)').matches && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    document.addEventListener('mousemove', function(e){
+      var x = (e.clientX / window.innerWidth - 0.5) * 16;
+      var y = (e.clientY / window.innerHeight - 0.5) * 16;
+      document.body.style.backgroundPosition = (50 + x) + '% ' + (-5 + y) + '%';
+    });
+  }
+</script>
 </body></html>

@@ -90,7 +90,7 @@ function renderMarkdown(src){
 // Barre d'actions sous une réponse IA : copier, régénérer (si dispo), réagir 👍👎
 function addActs(bodyEl, raw, opts){
   opts = opts || {};
-  const acts = document.createElement('div'); acts.className = 'acts';
+  const acts = document.createElement('div'); acts.className = 'acts'; acts.setAttribute('contenteditable', 'false');
   const copyBtn = document.createElement('button'); copyBtn.className = 'act'; copyBtn.type = 'button'; copyBtn.textContent = '📋 Copier';
   copyBtn.addEventListener('click', () => { navigator.clipboard.writeText(raw).then(() => { copyBtn.textContent = '✓ Copié'; setTimeout(() => copyBtn.textContent = '📋 Copier', 1500); }).catch(() => {}); });
   acts.appendChild(copyBtn);
@@ -108,6 +108,30 @@ function addActs(bodyEl, raw, opts){
   up.addEventListener('click', () => react('up'));
   down.addEventListener('click', () => react('down'));
   acts.appendChild(up); acts.appendChild(down);
+
+  // Traduire (menu de langues)
+  const trWrap = document.createElement('div'); trWrap.className = 'translate-wrap';
+  const trBtn = document.createElement('button'); trBtn.className = 'act'; trBtn.type = 'button'; trBtn.textContent = '🌐 Traduire';
+  const trMenu = document.createElement('div'); trMenu.className = 'translate-menu';
+  [['Anglais','anglais'],['Espagnol','espagnol'],['Allemand','allemand'],['Italien','italien'],['Portugais','portugais']].forEach(([label, lang]) => {
+    const b = document.createElement('button'); b.type = 'button'; b.textContent = label;
+    b.addEventListener('click', () => { trMenu.classList.remove('show'); input.value = 'Traduis ta réponse précédente en ' + lang + '.'; sendMessage(); });
+    trMenu.appendChild(b);
+  });
+  trBtn.addEventListener('click', (e) => { e.stopPropagation(); trMenu.classList.toggle('show'); });
+  document.addEventListener('click', (e) => { if (!trWrap.contains(e.target)) trMenu.classList.remove('show'); });
+  trWrap.appendChild(trBtn); trWrap.appendChild(trMenu);
+  acts.appendChild(trWrap);
+
+  // Modifier (brouillon collaboratif) : édite directement le texte affiché, sans repasser par l'IA
+  const editBtn = document.createElement('button'); editBtn.className = 'act'; editBtn.type = 'button'; editBtn.textContent = '✏️ Modifier';
+  editBtn.addEventListener('click', () => {
+    const editing = bodyEl.getAttribute('contenteditable') === 'true';
+    if (editing) { bodyEl.removeAttribute('contenteditable'); editBtn.textContent = '✏️ Modifier'; }
+    else { bodyEl.setAttribute('contenteditable', 'true'); bodyEl.focus(); editBtn.textContent = '✓ Terminé'; }
+  });
+  acts.appendChild(editBtn);
+
   bodyEl.appendChild(acts);
   return acts;
 }
@@ -159,6 +183,66 @@ function openModal(opts){
     function key(e){ if(e.key==='Escape') cancel(); else if(e.key==='Enter' && hasInput){ e.preventDefault(); ok(); } }
     function overlay(e){ if(e.target===modal) cancel(); }
     mOk.addEventListener('click',ok); mCancel.addEventListener('click',cancel); document.addEventListener('keydown',key); modal.addEventListener('click',overlay);
+  });
+}
+
+/* ---------- Glisser pour supprimer une conversation (mobile) ---------- */
+let swipeState = null;
+convList.addEventListener('touchstart', (e) => {
+  const row = e.target.closest('.conv'); if (!row) return;
+  swipeState = { row, startX: e.touches[0].clientX, dx: 0, moved: false };
+  row.classList.add('swiping');
+}, { passive: true });
+convList.addEventListener('touchmove', (e) => {
+  if (!swipeState) return;
+  const dx = e.touches[0].clientX - swipeState.startX;
+  if (dx < 0) {
+    swipeState.dx = Math.max(dx, -90);
+    swipeState.moved = Math.abs(dx) > 8;
+    const content = swipeState.row.querySelector('.conv-t'), acts = swipeState.row.querySelector('.conv-actions');
+    if (content) content.style.transform = `translateX(${swipeState.dx}px)`;
+    if (acts) acts.style.transform = `translateX(${swipeState.dx}px)`;
+    swipeState.row.classList.toggle('swipe-open', swipeState.dx < -60);
+  }
+}, { passive: true });
+convList.addEventListener('touchend', () => {
+  if (!swipeState) return;
+  const { row, dx, moved } = swipeState;
+  const content = row.querySelector('.conv-t'), acts = row.querySelector('.conv-actions');
+  row.classList.remove('swiping');
+  if (dx < -60) {
+    // Swipe suffisant -> déclenche la même suppression (avec confirmation) que le bouton 🗑
+    const delBtn = row.querySelector('.conv-del'); if (delBtn) delBtn.click();
+  }
+  if (content) content.style.transform = ''; if (acts) acts.style.transform = '';
+  row.classList.remove('swipe-open');
+  if (moved) { const blocker = (ev) => { ev.preventDefault(); row.removeEventListener('click', blocker); }; row.addEventListener('click', blocker, { once: true }); }
+  swipeState = null;
+});
+
+/* ---------- Aperçu au survol d'une conversation (ordinateur uniquement) ---------- */
+if (window.matchMedia && window.matchMedia('(pointer: fine)').matches) {
+  const tooltip = document.createElement('div'); tooltip.className = 'conv-tooltip'; document.body.appendChild(tooltip);
+  let tipTimer = null;
+  convList.addEventListener('mouseenter', (e) => {
+    const row = e.target.closest ? e.target.closest('.conv') : null;
+  }, true);
+  convList.addEventListener('mouseover', (e) => {
+    const row = e.target.closest('.conv'); if (!row) return;
+    const preview = row.getAttribute('data-preview');
+    if (!preview) return;
+    clearTimeout(tipTimer);
+    tipTimer = setTimeout(() => {
+      tooltip.textContent = preview;
+      const r = row.getBoundingClientRect();
+      tooltip.style.left = (r.right + 10) + 'px';
+      tooltip.style.top = r.top + 'px';
+      tooltip.classList.add('show');
+    }, 350);
+  });
+  convList.addEventListener('mouseout', (e) => {
+    if (!e.target.closest || !e.target.closest('.conv')) return;
+    clearTimeout(tipTimer); tooltip.classList.remove('show');
   });
 }
 
@@ -282,6 +366,40 @@ function confettiBurst(){
   }
   tick();
 }
+const _origTitle = document.title;
+let _pendingWhileHidden = false;
+function notifyIfHidden(){
+  if (!document.hidden) return;
+  _pendingWhileHidden = true;
+  document.title = '🔵 Nouvelle réponse — ' + _origTitle;
+  if (window.Notification && Notification.permission === 'granted') {
+    try { new Notification('✨ Ta réponse est prête', { body: 'Reviens sur ' + _origTitle + ' pour la lire.', silent: true }); } catch(e){}
+  }
+}
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && _pendingWhileHidden) {
+    _pendingWhileHidden = false;
+    document.title = _origTitle;
+    const toast = document.createElement('div'); toast.className = 'writing-toast show';
+    toast.innerHTML = '<span class="dot"></span> Nouvelle réponse reçue';
+    document.body.appendChild(toast);
+    setTimeout(() => { toast.classList.remove('show'); setTimeout(() => toast.remove(), 300); }, 2500);
+  }
+});
+/* ---------- Zoom plein écran sur les images ---------- */
+const lightbox = document.createElement('div'); lightbox.className = 'lightbox';
+lightbox.innerHTML = '<button class="lightbox-close" type="button" title="Fermer">✕</button><img alt="" />';
+document.body.appendChild(lightbox);
+const lightboxImg = lightbox.querySelector('img');
+function openLightbox(src){ lightboxImg.src = src; lightbox.classList.add('show'); }
+function closeLightbox(){ lightbox.classList.remove('show'); }
+lightbox.addEventListener('click', (e) => { if (e.target === lightbox || e.target.closest('.lightbox-close')) closeLightbox(); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeLightbox(); });
+messages.addEventListener('click', (e) => {
+  const img = e.target.closest('img.gen-img, img.msg-img');
+  if (img) openLightbox(img.src);
+});
+
 function addUser(text, file){
   const empty=$('empty'); if(empty) empty.remove();
   const turn=document.createElement('div'); turn.className='turn user';
@@ -327,6 +445,17 @@ function addAI(text, opts){
     highlightCode(body);
     const t=document.createElement('span'); t.className='msg-time'; t.textContent = nowLabel(); turn.appendChild(t);
     onNewTurn(turn);
+    if (navigator.vibrate) { try { navigator.vibrate(15); } catch(e){} }
+    if (opts.followups) {
+      const fu = document.createElement('div'); fu.className='followups';
+      ['Explique plus simplement', 'Continue', 'Traduis en anglais', 'Résume'].forEach(q => {
+        const b = document.createElement('button'); b.type='button'; b.textContent = q;
+        b.addEventListener('click', () => { input.value = q; sendMessage(); });
+        fu.appendChild(b);
+      });
+      body.appendChild(fu);
+    }
+    notifyIfHidden();
   }
 
   const finalHtml = renderMarkdown(text);
@@ -412,6 +541,25 @@ if (tplAdd) tplAdd.addEventListener('click', () => {
   if (!v) { alert('Écris ton message dans le champ avant de l\'enregistrer comme prompt.'); return; }
   const list = loadTemplates(); list.unshift(v); saveTemplates(list); renderTemplates();
 });
+const summarizeBtn = $('summarize-btn');
+if (summarizeBtn) summarizeBtn.addEventListener('click', () => {
+  if (!messages.querySelector('.turn')) { alert("Il n'y a encore rien à résumer dans cette conversation."); return; }
+  input.value = "Fais un résumé concis de notre conversation jusqu'ici, sous forme de puces.";
+  sendMessage();
+});
+
+/* ---------- Détection d'un long texte collé sans instruction ---------- */
+const intentBar = $('intent-bar');
+if (intentBar) {
+  input.addEventListener('paste', () => {
+    setTimeout(() => { if (input.value.trim().length > 400) intentBar.hidden = false; else intentBar.hidden = true; }, 30);
+  });
+  intentBar.querySelectorAll('button[data-act]').forEach(b => {
+    b.addEventListener('click', () => { input.value = b.getAttribute('data-act') + input.value; intentBar.hidden = true; input.focus(); });
+  });
+  const intentClose = intentBar.querySelector('.intent-close');
+  if (intentClose) intentClose.addEventListener('click', () => { intentBar.hidden = true; });
+}
 const chaloWrap = $('chalo-wrap');
 if (chaloWrap) {
   input.addEventListener('focus', () => chaloWrap.classList.add('hot'));
@@ -428,6 +576,7 @@ async function sendMessage(){
   addUser(text,file);
   input.value=''; input.style.height='auto'; clearFile();
   if (slashMenu) slashMenu.hidden = true;
+  if (intentBar) intentBar.hidden = true;
   if (chaloWrap) chaloWrap.classList.remove('hot');
   setSendState('stop');
   const typing=addTyping();
@@ -442,7 +591,7 @@ async function sendMessage(){
     else if(!r.ok){ addAI("⚠️ "+(data.message||"Une erreur est survenue.")); if(window.voiceMode) vmListen(); }
     else {
       const wasVoice = window._voiceTurn; window._voiceTurn = false;
-      const body=addAI(data.reply, { onRegenerate: () => regenerate(body.closest('.turn'), text, payloadFile) });
+      const body=addAI(data.reply, { onRegenerate: () => regenerate(body.closest('.turn'), text, payloadFile), followups: true });
       if (data.download || data.image) confettiBurst();
       const willSpeak = window.speakOn || window.voiceMode;
       if(window.voiceMode && willSpeak){ vmSpeak(plainForSpeech(data.reply)); }
@@ -470,7 +619,7 @@ async function regenerate(turnEl, text, payloadFile){
     const data = await r.json(); typing.remove();
     if (!r.ok) { addAI("⚠️ "+(data.message||"Une erreur est survenue.")); }
     else {
-      const body = addAI(data.reply, { onRegenerate: () => regenerate(body.closest('.turn'), text, payloadFile) });
+      const body = addAI(data.reply, { onRegenerate: () => regenerate(body.closest('.turn'), text, payloadFile), followups: true });
       if (data.download || data.image) confettiBurst();
     }
   } catch(e) { typing.remove(); addAI("⚠️ Erreur de connexion."); }

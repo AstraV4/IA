@@ -105,9 +105,11 @@ input:focus{outline:none;border-color:var(--cobalt);box-shadow:0 0 0 3px var(--c
 .conv-prev{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.76rem;color:var(--ink-3);font-weight:400}
 .conv.active .conv-prev{color:var(--cobalt);opacity:.75}
 .conv-actions{display:flex;gap:1px;flex:none}
-.conv-edit,.conv-del{opacity:0;background:none;border:none;cursor:pointer;font-size:.78rem;padding:2px}
-.conv:hover .conv-edit,.conv:hover .conv-del{opacity:.6}
-.conv-edit:hover,.conv-del:hover{opacity:1}
+.conv-actions{display:flex;gap:1px;flex:none;background:transparent;opacity:0;transition:opacity .15s}
+.conv:hover .conv-actions{opacity:1}
+.conv-pin,.conv-edit,.conv-del{background:transparent;border:none;outline:none;cursor:pointer;font-size:.78rem;padding:2px;color:inherit;box-shadow:none;-webkit-tap-highlight-color:transparent}
+.conv-edit:hover,.conv-del:hover,.conv-pin:hover{opacity:.75}
+.conv-pin.on{opacity:1 !important}
 .side-foot{margin-top:auto;border-top:1px solid var(--line-2);padding-top:10px;display:flex;flex-direction:column;gap:2px}
 .quota-mini{display:flex;align-items:center;gap:8px;padding:8px 10px;font-size:.8rem;color:var(--ink-3)}
 .quota-mini .qm-txt b{color:var(--ink)}
@@ -318,10 +320,7 @@ html{-webkit-text-size-adjust:100%}
 @keyframes wv{0%,100%{height:6px}50%{height:15px}}
 
 /* épinglage */
-.conv-pin{opacity:0;background:none;border:none;cursor:pointer;font-size:.78rem;padding:2px;filter:grayscale(1)}
-.conv:hover .conv-pin{opacity:.55}
-.conv-pin.on{opacity:.95;filter:none}
-.conv.pinned{background:rgba(193,95,60,.07)}
+.conv.pinned{background:var(--cobalt-soft)}
 
 /* overlay mode vocal */
 .voice-overlay{position:fixed;inset:0;z-index:120;background:rgba(10,12,16,.6);backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center}
@@ -365,8 +364,8 @@ html{-webkit-text-size-adjust:100%}
 .conv-swipe-bg{position:absolute;inset:0;background:var(--danger);color:#fff;display:flex;align-items:center;justify-content:flex-end;padding-right:16px;font-size:.82rem;font-weight:600;border-radius:9px;opacity:0}
 .conv.swiping{transition:none}
 .conv.swipe-open .conv-swipe-bg{opacity:1}
-.conv-t,.conv-actions{position:relative;background:var(--panel);z-index:1}
-.conv:not(.active):not(:hover) .conv-t,.conv:not(.active):not(:hover) .conv-actions{background:transparent}
+.conv-main,.conv-actions{position:relative;z-index:1}
+.conv.swiping .conv-main,.conv.swiping .conv-actions,.conv.swipe-open .conv-main,.conv.swipe-open .conv-actions{background:var(--panel)}
 
 /* Aperçu au survol d'une conversation (desktop) */
 

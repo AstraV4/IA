@@ -4,6 +4,7 @@
 <title>Connexion · <%= siteName %></title>
 <link rel="stylesheet" href="/static/css/style.css" />
 </head><body>
+<div class="grain" aria-hidden="true"></div>
 <nav class="nav"><a class="brand" href="/"><span class="m"></span><%= siteName %></a></nav>
 <div class="auth">
   <h2>Connexion</h2>
@@ -17,7 +18,7 @@
     <input type="email" name="email" value="<%= email %>" required />
     <label>Mot de passe</label>
     <input type="password" name="password" required />
-    <button class="btn-primary" type="submit">Se connecter</button>
+    <button class="btn-primary btn" type="submit">Se connecter</button>
   </form>
   <div class="alt">Pas de compte ? <a href="/register">S'inscrire</a></div>
   <div class="alt" style="margin-top:8px"><a href="/forgot">Mot de passe oublié ?</a></div>

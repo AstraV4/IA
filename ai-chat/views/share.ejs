@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="fr"><head>
+<meta charset="UTF-8" /><meta name="viewport" content="width=device-width,initial-scale=1.0" />
+<title><%= title %> · <%= siteName %></title>
+<meta name="robots" content="noindex" />
+<link rel="stylesheet" href="/static/css/style.css" />
+<style>
+  .share-wrap{max-width:700px;margin:0 auto;padding:26px 20px 60px}
+  .share-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:22px;padding-bottom:14px;border-bottom:1px solid var(--line-2)}
+  .share-head h1{font-family:'Instrument Serif',serif;font-weight:400;font-size:1.5rem}
+  .share-tag{font-size:.75rem;color:var(--ink-3);background:var(--sunk);padding:4px 10px;border-radius:20px}
+  .s-turn{margin-bottom:26px}
+  .s-turn.user{display:flex;justify-content:flex-end}
+  .s-bubble{background:var(--panel);border:1px solid var(--line-2);padding:10px 15px;border-radius:var(--r-lg) var(--r-lg) 5px var(--r-lg);max-width:80%;font-size:.95rem;white-space:pre-wrap;word-wrap:break-word;box-shadow:var(--sh-1)}
+  .s-turn.ai .body{font-size:.97rem;line-height:1.7}
+  .s-turn.ai .body p{margin:0 0 12px}
+  .s-turn.ai .body ul{list-style:none;margin:0 0 12px}
+  .s-turn.ai .body li{padding-left:18px;position:relative;margin-bottom:5px}
+  .s-turn.ai .body li::before{content:"";position:absolute;left:3px;top:.6em;width:5px;height:5px;border-radius:50%;background:var(--cobalt);opacity:.55}
+  .s-turn.ai .body strong{font-weight:600}
+  .s-turn.ai .body a{color:var(--cobalt)}
+</style>
+</head><body>
+<div class="grain" aria-hidden="true"></div>
+<nav class="nav"><a class="brand" href="/"><span class="m"></span><%= siteName %></a><div class="links"><a class="pill" href="/register">Créer un compte</a></div></nav>
+<div class="share-wrap">
+  <div class="share-head"><h1><%= title %></h1><span class="share-tag">👁️ Lecture seule</span></div>
+  <div id="turns">
+    <% messages.forEach(function(m){ %>
+      <% if (m.role === 'user') { %>
+        <div class="s-turn user"><div class="s-bubble"></div></div>
+      <% } else { %>
+        <div class="s-turn ai"><div class="body"></div></div>
+      <% } %>
+    <% }) %>
+  </div>
+</div>
+<script>
+  var RAW = <%- JSON.stringify(messages.map(function(m){ return m.content; })) %>;
+  function escapeHtml(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+  function inlineMd(t){
+    t = t.replace(/\[([^\]]+)\]\((\/[^)\s]+|https?:\/\/[^)\s]+)\)/g,(m,l,h)=>'\u0002'+l+'\u0002'+h+'\u0002');
+    t = escapeHtml(t);
+    t = t.replace(/`([^`]+)`/g,'<code>$1</code>');
+    t = t.replace(/\*\*([^*]+?)\*\*/g,'<strong>$1</strong>');
+    t = t.replace(/\u0002([^\u0002]+)\u0002([^\u0002]+)\u0002/g,'<a href="$2" target="_blank" rel="noopener">$1</a>');
+    return t;
+  }
+  function renderMarkdown(src){
+    src = String(src).replace(/\r\n/g,'\n');
+    const lines = src.split('\n'); const out=[]; let i=0;
+    while(i<lines.length){
+      const line=lines[i];
+      if(/^\s*$/.test(line)){ i++; continue; }
+      const h=line.match(/^(#{1,6})\s+(.*)$/); if(h){ out.push('<h'+h[1].length+'>'+inlineMd(h[2].trim())+'</h'+h[1].length+'>'); i++; continue; }
+      if(/^\s*[-*+]\s+/.test(line)){ const it=[]; while(i<lines.length && /^\s*[-*+]\s+/.test(lines[i])){ it.push('<li>'+inlineMd(lines[i].replace(/^\s*[-*+]\s+/,''))+'</li>'); i++; } out.push('<ul>'+it.join('')+'</ul>'); continue; }
+      const para=[]; while(i<lines.length && !/^\s*$/.test(lines[i]) && !/^(#{1,6})\s/.test(lines[i]) && !/^\s*[-*+]\s+/.test(lines[i])){ para.push(lines[i]); i++; }
+      out.push('<p>'+para.map(inlineMd).join('<br>')+'</p>');
+    }
+    return out.join('\n');
+  }
+  document.querySelectorAll('#turns > div').forEach(function(el, i){
+    if (el.classList.contains('user')) el.querySelector('.s-bubble').textContent = RAW[i];
+    else el.querySelector('.body').innerHTML = renderMarkdown(RAW[i]);
+  });
+</script>
+</body></html>

@@ -4,6 +4,7 @@
 <title>Mot de passe oublié · <%= siteName %></title>
 <link rel="stylesheet" href="/static/css/style.css" />
 </head><body>
+<div class="grain" aria-hidden="true"></div>
 <nav class="nav"><a class="brand" href="/"><span class="m"></span><%= siteName %></a></nav>
 <div class="auth">
   <h2>Mot de passe oublié</h2>
@@ -15,7 +16,7 @@
     <form method="POST" action="/forgot">
       <label>E-mail</label>
       <input type="email" name="email" required />
-      <button class="btn-primary" type="submit">Envoyer le lien</button>
+      <button class="btn-primary btn" type="submit">Envoyer le lien</button>
     </form>
     <div class="alt" style="margin-top:12px"><a href="/login">Retour à la connexion</a></div>
   <% } else { %>

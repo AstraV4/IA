@@ -3,7 +3,25 @@
 <meta charset="UTF-8" /><meta name="viewport" content="width=device-width,initial-scale=1.0" />
 <title>Mon compte · <%= siteName %></title>
 <link rel="stylesheet" href="/static/css/style.css" />
+<style>
+  .sec{margin-top:26px;padding-top:22px;border-top:1px solid var(--line-2)}
+  .sec h3{margin-bottom:10px;font-size:1.05rem}
+  .swatches{display:flex;gap:10px;margin-top:10px}
+  .swatch{width:34px;height:34px;border-radius:50%;cursor:pointer;border:2px solid transparent;transition:transform .15s var(--spring)}
+  .swatch:hover{transform:scale(1.1)}
+  .swatch.sel{border-color:var(--ink)}
+  .ref-box{display:flex;gap:8px;margin-top:10px}
+  .ref-box input{flex:1;font-family:'JetBrains Mono',monospace;font-size:.85rem}
+  .model-choice{display:flex;gap:10px;margin-top:10px}
+  .model-opt{flex:1;border:1px solid var(--line-2);border-radius:var(--r);padding:12px;cursor:pointer;text-align:center;font-size:.85rem;transition:border-color .2s,background .2s}
+  .model-opt:hover{border-color:var(--cobalt)}
+  .model-opt.sel{border-color:var(--cobalt);background:var(--cobalt-soft);font-weight:600}
+  .stat-mini{display:flex;gap:18px;margin-top:10px;flex-wrap:wrap}
+  .stat-mini div{background:var(--sunk);border-radius:var(--r);padding:10px 16px;font-size:.85rem;color:var(--ink-2)}
+  .stat-mini b{display:block;font-size:1.3rem;color:var(--ink);font-family:'Instrument Serif',serif;font-weight:400}
+</style>
 </head><body>
+<div class="grain" aria-hidden="true"></div>
 <nav class="nav">
   <a class="brand" href="/"><span class="m"></span><%= siteName %></a>
   <div class="links">
@@ -13,8 +31,8 @@
 </nav>
 
 <div class="card">
-  <h2>Mon compte</h2>
-  <p style="color:var(--dim);margin:6px 0 18px"><%= me.email %></p>
+  <h2 style="font-family:'Instrument Serif',serif;font-weight:400;font-size:1.8rem">Mon compte</h2>
+  <p style="color:var(--ink-3);margin:6px 0 18px"><%= me.email %></p>
 
   <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
     <strong>Forfait :</strong>
@@ -24,30 +42,77 @@
   <div style="margin-top:18px">
     <strong>Messages ce mois</strong>
     <div class="bar"><i style="width:<%= Math.min(100, Math.round(used/limit*100)) %>%"></i></div>
-    <div style="color:var(--dim);font-size:.9rem"><%= used %> / <%= limit %> messages utilisés</div>
+    <div style="color:var(--ink-3);font-size:.9rem"><%= used %> / <%= limit %> messages utilisés<% if (u.bonus_msgs) { %> (dont <b><%= u.bonus_msgs %></b> bonus parrainage 🎁)<% } %></div>
+  </div>
+
+  <!-- Stats personnelles -->
+  <div class="sec">
+    <h3>📊 Mes statistiques</h3>
+    <div class="stat-mini">
+      <div><b><%= stats.msgsSent %></b>messages envoyés</div>
+      <div><b><%= stats.referrals %></b>ami(s) parrainé(s)</div>
+      <% if (stats.topDay) { %><div><b><%= stats.topDay %></b>jour le plus actif</div><% } %>
+    </div>
+  </div>
+
+  <!-- Parrainage -->
+  <div class="sec">
+    <h3>🎁 Parraine un ami</h3>
+    <p style="color:var(--ink-3);font-size:.9rem">Chacun reçoit <b>20 messages bonus</b> quand un ami s'inscrit avec ton lien.</p>
+    <div class="ref-box">
+      <input id="ref-link" readonly value="<%= siteOrigin %>/register?ref=<%= u.referral_code %>" />
+      <button class="btn" type="button" id="ref-copy">Copier</button>
+    </div>
+  </div>
+
+  <!-- Choix du modèle (Pro uniquement) -->
+  <% if (plan === 'pro') { %>
+  <div class="sec">
+    <h3>🤖 Vitesse vs intelligence</h3>
+    <p style="color:var(--ink-3);font-size:.9rem;margin-bottom:4px">Choisis ce qui compte le plus pour toi au quotidien.</p>
+    <form method="POST" action="/account/model" id="model-form">
+      <div class="model-choice">
+        <label class="model-opt <%= u.model_pref!=='fast'?'sel':'' %>"><input type="radio" name="model_pref" value="smart" <%= u.model_pref!=='fast'?'checked':'' %> style="display:none">🧠 Plus intelligent</label>
+        <label class="model-opt <%= u.model_pref==='fast'?'sel':'' %>"><input type="radio" name="model_pref" value="fast" <%= u.model_pref==='fast'?'checked':'' %> style="display:none">⚡ Plus rapide</label>
+      </div>
+    </form>
+  </div>
+  <% } %>
+
+  <!-- Couleur d'accent -->
+  <div class="sec">
+    <h3>🎨 Couleur d'accent</h3>
+    <p style="color:var(--ink-3);font-size:.9rem">Personnalise la couleur principale de l'interface.</p>
+    <div class="swatches" id="swatches">
+      <span class="swatch" data-c="#2A45E8" style="background:#2A45E8" title="Cobalt (défaut)"></span>
+      <span class="swatch" data-c="#0F7B6C" style="background:#0F7B6C" title="Émeraude"></span>
+      <span class="swatch" data-c="#C0392B" style="background:#C0392B" title="Corail"></span>
+      <span class="swatch" data-c="#9B59B6" style="background:#9B59B6" title="Violet"></span>
+      <span class="swatch" data-c="#E67E22" style="background:#E67E22" title="Ambre"></span>
+    </div>
   </div>
 
   <% if (plan !== 'pro') { %>
-    <div style="margin-top:26px;padding-top:22px;border-top:1px solid var(--border)">
-      <h3 style="margin-bottom:6px">Passer au Pro</h3>
-      <p style="color:var(--dim);font-size:.92rem;margin-bottom:10px"><b><%= proLimit %></b> messages / mois au lieu de <%= freeLimit %>.</p>
-      <div style="background:var(--panel2);border:1px solid var(--border);border-radius:12px;padding:16px">
+    <div class="sec">
+      <h3>Passer au Pro</h3>
+      <p style="color:var(--ink-3);font-size:.92rem;margin-bottom:10px"><b><%= proLimit %></b> messages / mois au lieu de <%= freeLimit %>, choix du modèle, meilleure qualité d'image.</p>
+      <div style="background:var(--sunk);border:1px solid var(--line-2);border-radius:var(--r);padding:16px">
         <p style="margin-bottom:8px">Pour débloquer le Pro :</p>
-        <ol style="color:var(--dim);font-size:.92rem;margin-left:18px;line-height:1.7">
-          <li>Ajoute <b style="color:var(--text)"><%= discordHandle %></b> sur Discord</li>
-          <li>Envoie-lui ton e-mail : <b style="color:var(--text)"><%= me.email %></b></li>
+        <ol style="color:var(--ink-3);font-size:.92rem;margin-left:18px;line-height:1.7">
+          <li>Ajoute <b style="color:var(--ink)"><%= discordHandle %></b> sur Discord</li>
+          <li>Envoie-lui ton e-mail : <b style="color:var(--ink)"><%= me.email %></b></li>
           <li>Il active ton Pro 🎉</li>
         </ol>
       </div>
     </div>
   <% } else { %>
-    <p style="margin-top:26px;color:var(--dim)">Merci d'être Pro ! 💜 Tu profites de <%= proLimit %> messages par mois.</p>
+    <p class="sec" style="color:var(--ink-3);border-top:none;padding-top:0">Merci d'être Pro ! 💙 Tu profites de <%= proLimit %> messages par mois.</p>
   <% } %>
 
   <!-- Changer le mot de passe -->
-  <div style="margin-top:26px;padding-top:22px;border-top:1px solid var(--border)">
-    <h3 style="margin-bottom:10px">🔑 Changer mon mot de passe</h3>
-    <% if (pw === 'ok') { %><div class="ok">✅ Mot de passe changé !</div><% } %>
+  <div class="sec">
+    <h3>🔑 Changer mon mot de passe</h3>
+    <% if (pw === 'ok') { %><div class="notice">✅ Mot de passe changé !</div><% } %>
     <% if (pw === 'bad') { %><div class="error">❌ Mot de passe actuel incorrect.</div><% } %>
     <% if (pw === 'short') { %><div class="error">❌ Le nouveau mot de passe doit faire au moins 6 caractères.</div><% } %>
     <form method="POST" action="/account/password">
@@ -59,15 +124,48 @@
     </form>
   </div>
 
-  <% if (isAdmin) { %><p style="margin-top:22px"><a class="btn" href="/admin">🛠️ Espace admin</a></p><% } %>
+  <% if (isAdmin) { %><p class="sec" style="border-top:none;padding-top:0"><a class="btn" href="/admin">🛠️ Espace admin</a></p><% } %>
 
   <!-- Zone de danger -->
-  <div style="margin-top:26px;padding-top:22px;border-top:1px solid var(--border)">
-    <h3 style="margin-bottom:6px;color:var(--danger)">Zone de danger</h3>
-    <p style="color:var(--dim);font-size:.9rem;margin-bottom:12px">La suppression de ton compte est définitive : conversations et données seront perdues.</p>
+  <div class="sec">
+    <h3 style="color:var(--danger)">Zone de danger</h3>
+    <p style="color:var(--ink-3);font-size:.9rem;margin-bottom:12px">La suppression de ton compte est définitive : conversations et données seront perdues.</p>
     <form method="POST" action="/account/delete" onsubmit="return confirm('Supprimer ton compte définitivement ? Cette action est irréversible.')">
       <button class="btn btn-danger" type="submit">Supprimer mon compte</button>
     </form>
   </div>
 </div>
+<script>
+  // Choix du modèle : envoi automatique au clic
+  document.querySelectorAll('.model-opt').forEach(function(el){
+    el.addEventListener('click', function(){
+      document.querySelectorAll('.model-opt').forEach(function(o){ o.classList.remove('sel'); });
+      el.classList.add('sel');
+      el.querySelector('input').checked = true;
+      document.getElementById('model-form').submit();
+    });
+  });
+  // Copier le lien de parrainage
+  var refBtn = document.getElementById('ref-copy');
+  if (refBtn) refBtn.addEventListener('click', function(){
+    var i = document.getElementById('ref-link'); i.select();
+    navigator.clipboard.writeText(i.value).then(function(){ refBtn.textContent = '✓ Copié'; setTimeout(function(){ refBtn.textContent = 'Copier'; }, 1500); }).catch(function(){});
+  });
+  // Couleur d'accent : appliquée immédiatement + mémorisée
+  try {
+    var saved = localStorage.getItem('accent');
+    document.querySelectorAll('.swatch').forEach(function(s){
+      if (saved && s.getAttribute('data-c').toLowerCase() === saved.toLowerCase()) s.classList.add('sel');
+      s.addEventListener('click', function(){
+        var c = s.getAttribute('data-c');
+        document.documentElement.style.setProperty('--cobalt', c);
+        document.documentElement.style.setProperty('--cobalt-soft', c + '22');
+        localStorage.setItem('accent', c);
+        document.querySelectorAll('.swatch').forEach(function(x){ x.classList.remove('sel'); });
+        s.classList.add('sel');
+      });
+    });
+    if (!saved) document.querySelector('.swatch').classList.add('sel');
+  } catch(e){}
+</script>
 </body></html>

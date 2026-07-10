@@ -78,4 +78,25 @@ if (!hasCol('users', 'reset_token'))   db.exec("ALTER TABLE users ADD COLUMN res
 if (!hasCol('users', 'reset_expires')) db.exec("ALTER TABLE users ADD COLUMN reset_expires INTEGER");
 if (!hasCol('conversations', 'pinned')) db.exec("ALTER TABLE conversations ADD COLUMN pinned INTEGER DEFAULT 0");
 
+// --- Migration : parrainage, préférence de modèle (Pro), partage de conversation, retours ---
+if (!hasCol('users', 'referral_code')) db.exec("ALTER TABLE users ADD COLUMN referral_code TEXT");
+if (!hasCol('users', 'referred_by'))   db.exec("ALTER TABLE users ADD COLUMN referred_by INTEGER");
+if (!hasCol('users', 'bonus_msgs'))    db.exec("ALTER TABLE users ADD COLUMN bonus_msgs INTEGER DEFAULT 0");
+if (!hasCol('users', 'model_pref'))    db.exec("ALTER TABLE users ADD COLUMN model_pref TEXT DEFAULT 'smart'");
+if (!hasCol('conversations', 'share_token')) db.exec("ALTER TABLE conversations ADD COLUMN share_token TEXT");
+db.exec(`CREATE TABLE IF NOT EXISTS feedback (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER,
+  conversation_id INTEGER,
+  verdict TEXT,
+  excerpt TEXT,
+  created_at INTEGER
+)`);
+// Génère un code de parrainage pour les comptes qui n'en ont pas encore (créés avant cette mise à jour)
+const noCode = db.prepare("SELECT id FROM users WHERE referral_code IS NULL").all();
+for (const u of noCode) {
+  const code = 'R' + u.id.toString(36).toUpperCase() + Math.random().toString(36).slice(2, 6).toUpperCase();
+  db.prepare('UPDATE users SET referral_code = ? WHERE id = ?').run(code, u.id);
+}
+
 module.exports = { db, DATA_DIR };

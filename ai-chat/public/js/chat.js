@@ -87,14 +87,36 @@ function renderMarkdown(src){
   }
   return out.join('\n');
 }
-// Bouton "copier" sous une réponse
-function addCopy(bodyEl, raw){
-  const b=document.createElement('button'); b.className='copy-btn'; b.type='button'; b.textContent='📋 Copier';
-  b.addEventListener('click',()=>{ navigator.clipboard.writeText(raw).then(()=>{ b.textContent='✓ Copié'; b.classList.add('copied'); setTimeout(()=>{ b.textContent='📋 Copier'; b.classList.remove('copied'); },1500); }).catch(()=>{}); });
-  bodyEl.appendChild(b);
+// Barre d'actions sous une réponse IA : copier, régénérer (si dispo), réagir 👍👎
+function addActs(bodyEl, raw, opts){
+  opts = opts || {};
+  const acts = document.createElement('div'); acts.className = 'acts';
+  const copyBtn = document.createElement('button'); copyBtn.className = 'act'; copyBtn.type = 'button'; copyBtn.textContent = '📋 Copier';
+  copyBtn.addEventListener('click', () => { navigator.clipboard.writeText(raw).then(() => { copyBtn.textContent = '✓ Copié'; setTimeout(() => copyBtn.textContent = '📋 Copier', 1500); }).catch(() => {}); });
+  acts.appendChild(copyBtn);
+  if (opts.onRegenerate) {
+    const regBtn = document.createElement('button'); regBtn.className = 'act'; regBtn.type = 'button'; regBtn.textContent = '↻ Régénérer';
+    regBtn.addEventListener('click', () => opts.onRegenerate());
+    acts.appendChild(regBtn);
+  }
+  const up = document.createElement('button'); up.className = 'act'; up.type = 'button'; up.title = 'Bonne réponse'; up.textContent = '👍';
+  const down = document.createElement('button'); down.className = 'act'; down.type = 'button'; down.title = 'Mauvaise réponse'; down.textContent = '👎';
+  function react(v) {
+    up.classList.toggle('on', v === 'up'); down.classList.toggle('on', v === 'down');
+    fetch('/api/feedback', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ verdict: v, excerpt: raw.slice(0, 300), conversation_id: window.CURRENT }) }).catch(() => {});
+  }
+  up.addEventListener('click', () => react('up'));
+  down.addEventListener('click', () => react('down'));
+  acts.appendChild(up); acts.appendChild(down);
+  bodyEl.appendChild(acts);
+  return acts;
 }
+function highlightCode(root){ try { if (window.hljs) (root||document).querySelectorAll('pre code').forEach(b => { if (!b.classList.contains('hljs')) window.hljs.highlightElement(b); }); } catch(e){} }
 // Rendre le Markdown de l'historique au chargement
-document.querySelectorAll('.md-raw').forEach(el => { const raw=el.textContent; el.innerHTML = renderMarkdown(raw); el.classList.remove('md-raw'); addCopy(el, raw); });
+document.querySelectorAll('.md-raw').forEach(el => { const raw=el.textContent; el.innerHTML = renderMarkdown(raw); el.classList.remove('md-raw'); addActs(el, raw); });
+window.addEventListener('DOMContentLoaded', () => highlightCode());
+if (window.hljs) highlightCode(); else document.addEventListener('load', () => highlightCode());
+setTimeout(() => highlightCode(), 400); // repli si le script highlight.js (defer) charge après coup
 
 /* ---------- Sidebar mobile ---------- */
 const side = $('side'), overlay = $('side-overlay');
@@ -224,6 +246,42 @@ dropZone.addEventListener('drop', (e) => {
 });
 
 /* ---------- Bulles / rendu ---------- */
+function nowLabel(){ try { return new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }); } catch(e){ return ''; } }
+function isNearBottom(){ return thread.scrollHeight - thread.scrollTop - thread.clientHeight < 80; }
+function scrollToBottom(){ if (!window._userScrolledUp) thread.scrollTop = thread.scrollHeight; }
+const jumpBtn = $('jump-btn');
+if (jumpBtn) {
+  thread.addEventListener('scroll', () => {
+    window._userScrolledUp = !isNearBottom();
+    jumpBtn.hidden = !window._userScrolledUp;
+  });
+  jumpBtn.addEventListener('click', () => { window._userScrolledUp = false; thread.scrollTop = thread.scrollHeight; jumpBtn.hidden = true; });
+}
+function onNewTurn(turn){
+  if (window._userScrolledUp && jumpBtn) jumpBtn.hidden = false;
+}
+// Petite pluie de confettis discrète (succès d'une génération) — pure Canvas, aucune dépendance
+function confettiBurst(){
+  if (prefersReducedMotion()) return;
+  const c = document.createElement('canvas'); c.style.position='fixed'; c.style.inset='0'; c.style.zIndex='9998'; c.style.pointerEvents='none';
+  c.width = innerWidth; c.height = innerHeight; document.body.appendChild(c);
+  const ctx = c.getContext('2d');
+  const colors = ['#2A45E8', '#0F7B6C', '#E8B84B', '#E85C5C'];
+  const pieces = Array.from({length: 60}, () => ({
+    x: innerWidth/2 + (Math.random()-0.5)*140, y: innerHeight*0.3, vx: (Math.random()-0.5)*7, vy: Math.random()*-7-3,
+    r: 3+Math.random()*3, c: colors[Math.floor(Math.random()*colors.length)], rot: Math.random()*6, vr: (Math.random()-0.5)*0.3
+  }));
+  let frame = 0;
+  function tick(){
+    frame++;
+    ctx.clearRect(0,0,c.width,c.height);
+    pieces.forEach(p => { p.x+=p.vx; p.y+=p.vy; p.vy+=0.25; p.rot+=p.vr;
+      ctx.save(); ctx.translate(p.x,p.y); ctx.rotate(p.rot); ctx.fillStyle=p.c; ctx.fillRect(-p.r,-p.r,p.r*2,p.r*2); ctx.restore();
+    });
+    if (frame < 90) requestAnimationFrame(tick); else c.remove();
+  }
+  tick();
+}
 function addUser(text, file){
   const empty=$('empty'); if(empty) empty.remove();
   const turn=document.createElement('div'); turn.className='turn user';
@@ -231,7 +289,7 @@ function addUser(text, file){
   if(file && file.kind==='image' && file.url){ const im=document.createElement('img'); im.src=file.url; im.className='msg-img'; b.appendChild(im); }
   else if(file){ const chip=document.createElement('div'); chip.className='filechip'; chip.innerHTML='<span class="fi">'+(file.kind==='pdf'?'📄':'📎')+'</span><span class="fn"></span>'; chip.querySelector('.fn').textContent=file.name||'fichier'; b.appendChild(chip); }
   if(text){ const t=document.createElement('div'); t.textContent=text; b.appendChild(t); }
-  turn.appendChild(b); messages.appendChild(turn); thread.scrollTop=thread.scrollHeight;
+  turn.appendChild(b); messages.appendChild(turn); window._userScrolledUp=false; if(jumpBtn) jumpBtn.hidden=true; thread.scrollTop=thread.scrollHeight;
 }
 
 /* Découpe un HTML déjà rendu en tokens sûrs à révéler progressivement :
@@ -253,18 +311,22 @@ function tokenizeHtml(html){
   return tokens;
 }
 
-function addAI(text){
+function addAI(text, opts){
+  opts = opts || {};
   const turn=document.createElement('div'); turn.className='turn ai';
   turn.innerHTML='<div class="fil"><span class="node live"></span><i></i></div>';
   const body=document.createElement('div'); body.className='body';
   turn.appendChild(body);
-  messages.appendChild(turn); thread.scrollTop=thread.scrollHeight;
+  messages.appendChild(turn); scrollToBottom();
 
   const node=turn.querySelector('.node'), fil=turn.querySelector('.fil i');
   function growFil(){ fil.style.height = Math.max(0, body.offsetHeight - 8) + 'px'; }
   function finish(){
     node.classList.remove('live'); turn.classList.add('done'); growFil();
-    addCopy(body, text); thread.scrollTop = thread.scrollHeight;
+    addActs(body, text, { onRegenerate: opts.onRegenerate });
+    highlightCode(body);
+    const t=document.createElement('span'); t.className='msg-time'; t.textContent = nowLabel(); turn.appendChild(t);
+    onNewTurn(turn);
   }
 
   const finalHtml = renderMarkdown(text);
@@ -280,7 +342,7 @@ function addAI(text){
     const n = Math.max(1, Math.round(tokens.length * eased));
     body.innerHTML = tokens.slice(0, n).join('');
     body.appendChild(cursor);
-    growFil(); thread.scrollTop = thread.scrollHeight;
+    growFil(); scrollToBottom();
     if (t < 1) requestAnimationFrame(step);
     else { cursor.remove(); body.innerHTML = finalHtml; finish(); }
   }
@@ -302,7 +364,54 @@ function addConvToSidebar(id,title){
   convList.prepend(a);
 }
 
-input.addEventListener('input', () => { input.style.height='auto'; input.style.height=Math.min(input.scrollHeight,150)+'px'; });
+input.addEventListener('input', () => { input.style.height='auto'; input.style.height=Math.min(input.scrollHeight,150)+'px'; updateSlashMenu(); });
+
+/* ---------- Commandes rapides "/" ---------- */
+const slashMenu = $('slash-menu');
+function updateSlashMenu(){
+  if (!slashMenu) return;
+  const v = input.value;
+  if (v.startsWith('/') && !v.includes('\n') && v.length < 30) { slashMenu.hidden = false; }
+  else { slashMenu.hidden = true; }
+}
+if (slashMenu) {
+  slashMenu.querySelectorAll('button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const cmd = btn.getAttribute('data-cmd');
+      slashMenu.hidden = true;
+      if (cmd === '__goto_correction__') { window.location.href = '/correction'; return; }
+      input.value = cmd; input.focus();
+      input.style.height='auto'; input.style.height=Math.min(input.scrollHeight,150)+'px';
+    });
+  });
+  document.addEventListener('click', (e) => { if (!slashMenu.hidden && !slashMenu.contains(e.target) && e.target !== input) slashMenu.hidden = true; });
+}
+
+/* ---------- Mes prompts (modèles réutilisables, stockés localement) ---------- */
+const tplList = $('tpl-list');
+function loadTemplates(){ try { return JSON.parse(localStorage.getItem('templates') || '[]'); } catch(e){ return []; } }
+function saveTemplates(list){ try { localStorage.setItem('templates', JSON.stringify(list.slice(0, 20))); } catch(e){} }
+function renderTemplates(){
+  if (!tplList) return;
+  const list = loadTemplates();
+  tplList.innerHTML = '';
+  if (!list.length) { const p = document.createElement('div'); p.className='tpl-item'; p.style.opacity='.6'; p.style.cursor='default'; p.textContent='Aucun prompt enregistré'; tplList.appendChild(p); return; }
+  list.forEach((t, i) => {
+    const el = document.createElement('div'); el.className='tpl-item';
+    el.innerHTML = '<span class="tpl-t"></span><button class="tpl-del" type="button" title="Supprimer">✕</button>';
+    el.querySelector('.tpl-t').textContent = t;
+    el.querySelector('.tpl-t').addEventListener('click', () => { input.value = t; input.focus(); input.style.height='auto'; input.style.height=Math.min(input.scrollHeight,150)+'px'; });
+    el.querySelector('.tpl-del').addEventListener('click', (e) => { e.stopPropagation(); const l = loadTemplates(); l.splice(i,1); saveTemplates(l); renderTemplates(); });
+    tplList.appendChild(el);
+  });
+}
+renderTemplates();
+const tplAdd = $('tpl-add');
+if (tplAdd) tplAdd.addEventListener('click', () => {
+  const v = input.value.trim();
+  if (!v) { alert('Écris ton message dans le champ avant de l\'enregistrer comme prompt.'); return; }
+  const list = loadTemplates(); list.unshift(v); saveTemplates(list); renderTemplates();
+});
 const chaloWrap = $('chalo-wrap');
 if (chaloWrap) {
   input.addEventListener('focus', () => chaloWrap.classList.add('hot'));
@@ -318,11 +427,13 @@ async function sendMessage(){
   const file=pendingFile;
   addUser(text,file);
   input.value=''; input.style.height='auto'; clearFile();
+  if (slashMenu) slashMenu.hidden = true;
   if (chaloWrap) chaloWrap.classList.remove('hot');
   setSendState('stop');
   const typing=addTyping();
   if(window.voiceMode) setVoiceStatus('thinking');
   const payloadFile = file ? (file.kind==='text' ? {kind:'text',text:file.text,name:file.name} : {kind:file.kind,media_type:file.media_type,data:file.data,name:file.name}) : undefined;
+  window._lastUserPayload = { text, file: payloadFile };
   currentAbortController = new AbortController();
   try{
     const r=await fetch('/api/chat',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ message:text, conversation_id:window.CURRENT||undefined, file:payloadFile }), signal: currentAbortController.signal });
@@ -331,7 +442,8 @@ async function sendMessage(){
     else if(!r.ok){ addAI("⚠️ "+(data.message||"Une erreur est survenue.")); if(window.voiceMode) vmListen(); }
     else {
       const wasVoice = window._voiceTurn; window._voiceTurn = false;
-      const body=addAI(data.reply);
+      const body=addAI(data.reply, { onRegenerate: () => regenerate(body.closest('.turn'), text, payloadFile) });
+      if (data.download || data.image) confettiBurst();
       const willSpeak = window.speakOn || window.voiceMode;
       if(window.voiceMode && willSpeak){ vmSpeak(plainForSpeech(data.reply)); }
       else if(willSpeak){ speakText(plainForSpeech(data.reply), function(){ if(wasVoice) startListening(); }); }
@@ -347,6 +459,23 @@ async function sendMessage(){
   currentAbortController = null;
   setSendState('send'); input.focus();
 }
+// Redemande la même question (sans réafficher la bulle utilisateur), remplace l'ancienne réponse
+async function regenerate(turnEl, text, payloadFile){
+  if (currentAbortController) return;
+  if (turnEl) turnEl.remove();
+  const typing = addTyping();
+  currentAbortController = new AbortController();
+  try {
+    const r = await fetch('/api/chat', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ message:text, conversation_id:window.CURRENT||undefined, file:payloadFile, regenerate:true }), signal: currentAbortController.signal });
+    const data = await r.json(); typing.remove();
+    if (!r.ok) { addAI("⚠️ "+(data.message||"Une erreur est survenue.")); }
+    else {
+      const body = addAI(data.reply, { onRegenerate: () => regenerate(body.closest('.turn'), text, payloadFile) });
+      if (data.download || data.image) confettiBurst();
+    }
+  } catch(e) { typing.remove(); addAI("⚠️ Erreur de connexion."); }
+  currentAbortController = null;
+}
 function setSendState(state){
   if(state==='stop'){ send.classList.add('is-stop'); send.title='Arrêter'; send.innerHTML='<span class="stop-sq"></span>'; send.classList.add('sent-pop'); setTimeout(()=>send.classList.remove('sent-pop'),350); }
   else { send.classList.remove('is-stop'); send.disabled=false; send.title='Envoyer'; send.innerHTML='➤'; }
@@ -359,18 +488,47 @@ input.addEventListener('keydown', (e)=>{ if(e.key==='Enter' && !e.shiftKey){ e.p
 
 thread.scrollTop=thread.scrollHeight;
 
-/* ---------- Export de la conversation ---------- */
+/* ---------- Export de la conversation (markdown, PDF) + partage ---------- */
+function collectTurns(){
+  return [...messages.querySelectorAll('.turn')].map(t => {
+    if (t.classList.contains('user')) return { role: 'user', text: t.querySelector('.bubble') ? t.querySelector('.bubble').innerText.trim() : '' };
+    const b = t.querySelector('.body'); let txt = '';
+    if (b) { const c = b.cloneNode(true); c.querySelectorAll('.acts,.dl-btn,.gen-img,.msg-time').forEach(x => x.remove()); txt = c.innerText.trim(); }
+    return { role: 'ai', text: txt };
+  });
+}
 $('export-btn').addEventListener('click', () => {
-  const turns = [...messages.querySelectorAll('.turn')];
+  const turns = collectTurns();
   if (!turns.length) { alert('Rien à exporter pour le moment.'); return; }
   let md = '# Conversation\n\n';
-  turns.forEach(t => {
-    if (t.classList.contains('user')) { md += '**Moi :**\n\n' + (t.querySelector('.bubble') ? t.querySelector('.bubble').innerText.trim() : '') + '\n\n'; }
-    else { const b = t.querySelector('.body'); let txt = ''; if (b) { const c = b.cloneNode(true); c.querySelectorAll('.copy-btn,.dl-btn').forEach(x => x.remove()); txt = c.innerText.trim(); } md += '**IA :**\n\n' + txt + '\n\n'; }
-  });
+  turns.forEach(t => { md += (t.role === 'user' ? '**Moi :**\n\n' : '**IA :**\n\n') + t.text + '\n\n'; });
   const blob = new Blob([md], { type: 'text/markdown' });
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'conversation.md';
   document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(a.href);
+});
+const exportPdfBtn = $('export-pdf-btn');
+if (exportPdfBtn) exportPdfBtn.addEventListener('click', async () => {
+  const turns = collectTurns();
+  if (!turns.length) { alert('Rien à exporter pour le moment.'); return; }
+  exportPdfBtn.textContent = '⏳ Génération…';
+  try {
+    const title = document.querySelector('.logo') ? 'Conversation' : 'Conversation';
+    const r = await fetch('/api/export-pdf', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ title, turns }) });
+    if (!r.ok) throw new Error('fail');
+    const blob = await r.blob();
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'conversation.pdf';
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(a.href);
+  } catch(e) { alert("Impossible de générer le PDF pour le moment."); }
+  exportPdfBtn.textContent = '📄 Exporter en PDF';
+});
+const shareBtn = $('share-btn');
+if (shareBtn) shareBtn.addEventListener('click', async () => {
+  if (!window.CURRENT) { alert("Envoie au moins un message avant de partager cette conversation."); return; }
+  try {
+    const r = await fetch('/api/conversations/' + window.CURRENT + '/share', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({}) });
+    const data = await r.json();
+    if (data.url) { await navigator.clipboard.writeText(data.url).catch(()=>{}); alert('Lien copié ✅ (lecture seule, sans connexion nécessaire) :\n' + data.url); }
+  } catch(e) { alert("Impossible de créer le lien de partage."); }
 });
 
 /* ================= Vocal : dictée + mode vocal mains libres ================= */

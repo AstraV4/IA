@@ -13,6 +13,7 @@
     "express": "^4.19.2",
     "express-session": "^1.18.0",
     "jszip": "^3.10.1",
+    "pdfkit": "^0.15.0",
     "pptxgenjs": "^3.12.0"
   }
 }

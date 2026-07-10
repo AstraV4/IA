@@ -3,7 +3,16 @@
 <meta charset="UTF-8" /><meta name="viewport" content="width=device-width,initial-scale=1.0" />
 <title>Chat · <%= siteName %></title>
 <link rel="stylesheet" href="/static/css/style.css" />
-<script>try{if(localStorage.getItem('theme')==='dark')document.documentElement.setAttribute('data-theme','dark');}catch(e){}</script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark-dimmed.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js" defer></script>
+<link rel="manifest" href="/manifest.json" />
+<link rel="apple-touch-icon" href="/static/icons/icon-192.png" />
+<meta name="theme-color" content="#10131A" />
+<script>
+try{if(localStorage.getItem('theme')==='dark')document.documentElement.setAttribute('data-theme','dark');}catch(e){}
+try{const a=localStorage.getItem('accent'); if(a){ document.documentElement.style.setProperty('--cobalt', a); document.documentElement.style.setProperty('--cobalt-soft', a+'22'); }}catch(e){}
+if ('serviceWorker' in navigator) { window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(()=>{})); }
+</script>
 </head><body class="chat-body">
 <div class="grain" aria-hidden="true"></div>
 <div class="app">
@@ -28,8 +37,13 @@
         </a>
       <% }) %>
     </div>
+    <div class="lbl">Mes prompts</div>
+    <div class="tpl-list" id="tpl-list"></div>
+    <button class="side-link" type="button" id="tpl-add">＋ Enregistrer le message en cours</button>
     <div class="side-foot">
       <button class="side-link" type="button" id="export-btn">⬇️ Exporter la conversation</button>
+      <button class="side-link" type="button" id="export-pdf-btn">📄 Exporter en PDF</button>
+      <button class="side-link" type="button" id="share-btn">🔗 Partager cette conversation</button>
       <% if (isAdmin) { %><a class="side-link" href="/admin">🛠️ Espace admin</a><% } %>
       <div class="quota-mini">
         <% if (me.plan === 'pro') { %><span class="tag pro">PRO</span><% } else { %><span class="tag">GRATUIT</span><% } %>
@@ -73,6 +87,7 @@
         <% } %>
       <% }) %>
       </div>
+      <button class="jump-btn" id="jump-btn" type="button" hidden>↓ Nouveaux messages</button>
     </div>
 
     <div class="composer-wrap">
@@ -82,6 +97,12 @@
         <button type="button" id="preview-remove" title="Retirer"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg></button>
       </div>
       <div class="voice-bar" id="voice-bar" hidden><span class="dot"></span> Je t'écoute… <button type="button" id="voice-stop">Stop</button></div>
+      <div class="slash-menu" id="slash-menu" hidden>
+        <button data-cmd="Fais-moi un flyer pour ">🖼️ /flyer <small>Créer un flyer</small></button>
+        <button data-cmd="Fais-moi une présentation PowerPoint sur ">📊 /presentation <small>Créer un PowerPoint</small></button>
+        <button data-cmd="Génère-moi une image de ">🎨 /image <small>Générer une image</small></button>
+        <button data-cmd="__goto_correction__">✍️ /correction <small>Corriger un texte</small></button>
+      </div>
       <div class="chalo-wrap" id="chalo-wrap">
       <div class="composer">
         <textarea id="input" placeholder="Écris ton message à <%= siteName %>…" rows="1"></textarea>

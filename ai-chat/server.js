@@ -19,6 +19,8 @@ const SITE_NAME = process.env.SITE_NAME || 'Mon IA';
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
 const MODEL = process.env.AI_MODEL || 'claude-haiku-4-5';
+const MODEL_FAST = process.env.AI_MODEL_FAST || 'claude-haiku-4-5';
+function pickModel(u) { return (u && u.plan === 'pro' && u.model_pref === 'fast') ? MODEL_FAST : MODEL; }
 const SYSTEM_PROMPT = process.env.SYSTEM_PROMPT ||
   "Tu es un assistant amical et serviable qui répond en français de façon claire et concise.";
 
@@ -41,6 +43,8 @@ app.set('trust proxy', true);
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json({ limit: '12mb' }));
 app.use('/static', express.static(path.join(__dirname, 'public')));
+app.get('/manifest.json', (req, res) => res.sendFile(path.join(__dirname, 'public', 'manifest.json')));
+app.get('/sw.js', (req, res) => { res.set('Content-Type', 'application/javascript'); res.set('Service-Worker-Allowed', '/'); res.sendFile(path.join(__dirname, 'public', 'sw.js')); });
 app.use(session({
   name: 'aichat.sid',
   store: new SQLiteStore({ db: 'sessions_ai.db', dir: DATA_DIR }),
@@ -93,7 +97,8 @@ function ensurePeriod(u) {
     u.msg_used = 0; u.period_start = now;
   }
 }
-function limitFor(plan) { return plan === 'pro' ? PRO_LIMIT : FREE_LIMIT; }
+const REFERRAL_BONUS = parseInt(process.env.REFERRAL_BONUS || '20', 10); // messages bonus offerts au parrain ET au parrainé
+function limitFor(plan, bonus) { return (plan === 'pro' ? PRO_LIMIT : FREE_LIMIT) + (bonus || 0); }
 
 // Vérifie que le domaine de l'e-mail peut recevoir du courrier (enregistrements MX).
 // Bloque les fautes de frappe (gmial.com) et les domaines bidons, sans envoyer d'e-mail.
@@ -143,35 +148,41 @@ app.get('/', (req, res) => res.render('landing'));
 
 app.get('/register', (req, res) => {
   if (req.session.userId) return res.redirect('/chat');
-  res.render('register', { error: null, email: '' });
+  res.render('register', { error: null, email: '', ref: (req.query.ref || '').toString().trim() });
 });
 app.post('/register', async (req, res) => {
   try {
     const email = (req.body.email || '').trim();
     const password = req.body.password || '';
     const el = email.toLowerCase();
-    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return res.render('register', { error: "E-mail invalide.", email });
-    if (password.length < 6) return res.render('register', { error: "Mot de passe : 6 caractères minimum.", email });
-    if (!(await emailDomainOk(email))) return res.render('register', { error: "Ce domaine e-mail semble ne pas exister. Vérifie l'orthographe (ex : gmail.com).", email });
-    if (db.prepare('SELECT 1 FROM users WHERE email_lower = ?').get(el)) return res.render('register', { error: "Cet e-mail est déjà utilisé.", email });
+    const refCode = (req.body.ref || '').toString().trim().toUpperCase();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return res.render('register', { error: "E-mail invalide.", email, ref: refCode });
+    if (password.length < 6) return res.render('register', { error: "Mot de passe : 6 caractères minimum.", email, ref: refCode });
+    if (!(await emailDomainOk(email))) return res.render('register', { error: "Ce domaine e-mail semble ne pas exister. Vérifie l'orthographe (ex : gmail.com).", email, ref: refCode });
+    if (db.prepare('SELECT 1 FROM users WHERE email_lower = ?').get(el)) return res.render('register', { error: "Cet e-mail est déjà utilisé.", email, ref: refCode });
     const hash = await bcrypt.hash(password, 10);
     const now = Date.now();
+    const referrer = refCode ? db.prepare('SELECT id FROM users WHERE referral_code = ?').get(refCode) : null;
+    const myCode = 'R' + Math.random().toString(36).slice(2, 8).toUpperCase();
+    const bonus = referrer ? REFERRAL_BONUS : 0;
     if (MAIL_ENABLED) {
       const token = newToken();
-      db.prepare('INSERT INTO users (email, email_lower, password, created_at, period_start, verified, verify_token) VALUES (?,?,?,?,?,0,?)')
-        .run(email, el, hash, now, now, token);
+      db.prepare('INSERT INTO users (email, email_lower, password, created_at, period_start, verified, verify_token, referral_code, referred_by, bonus_msgs) VALUES (?,?,?,?,?,0,?,?,?,?)')
+        .run(email, el, hash, now, now, token, myCode, referrer ? referrer.id : null, bonus);
+      if (referrer) db.prepare('UPDATE users SET bonus_msgs = bonus_msgs + ? WHERE id = ?').run(REFERRAL_BONUS, referrer.id);
       const link = baseUrl(req) + '/verify?token=' + token;
       await sendMail(email, 'Confirme ton adresse e-mail',
         mailLayout('Bienvenue \u{1F44B}', '<p style="color:#3c4149;font-size:14px;line-height:1.6">Merci de t\'\u00eatre inscrit \u00e0 ' + SITE_NAME + ' ! Clique sur le bouton pour activer ton compte.</p>' + mailButton(link, 'Confirmer mon adresse')));
       return res.render('verify-sent', { email });
     }
-    const info = db.prepare('INSERT INTO users (email, email_lower, password, created_at, period_start, verified) VALUES (?,?,?,?,?,1)')
-      .run(email, el, hash, now, now);
+    const info = db.prepare('INSERT INTO users (email, email_lower, password, created_at, period_start, verified, referral_code, referred_by, bonus_msgs) VALUES (?,?,?,?,?,1,?,?,?)')
+      .run(email, el, hash, now, now, myCode, referrer ? referrer.id : null, bonus);
+    if (referrer) db.prepare('UPDATE users SET bonus_msgs = bonus_msgs + ? WHERE id = ?').run(REFERRAL_BONUS, referrer.id);
     req.session.userId = info.lastInsertRowid;
     req.session.save(() => res.redirect('/chat'));
   } catch (e) {
     console.error('REGISTER ERROR:', e);
-    res.render('register', { error: "Erreur serveur, réessaie dans un instant.", email: req.body.email || '' });
+    res.render('register', { error: "Erreur serveur, réessaie dans un instant.", email: req.body.email || '', ref: req.body.ref || '' });
   }
 });
 
@@ -263,7 +274,7 @@ app.get('/chat', requireAuth, (req, res) => {
   const history = currentId
     ? db.prepare('SELECT role, content FROM messages WHERE conversation_id = ? ORDER BY id ASC LIMIT 500').all(currentId)
     : [];
-  res.render('chat', { conversations, currentId, history, used: u.msg_used, limit: limitFor(u.plan) });
+  res.render('chat', { conversations, currentId, history, used: u.msg_used, limit: limitFor(u.plan, u.bonus_msgs) });
 });
 
 // --- API conversations ---
@@ -298,16 +309,32 @@ app.post('/api/conversations/:id/pin', requireAuth, (req, res) => {
   res.json({ ok: true, pinned });
 });
 
+// --- Lien de partage en lecture seule (pas besoin de compte pour le consulter) ---
+app.post('/api/conversations/:id/share', requireAuth, (req, res) => {
+  const c = db.prepare('SELECT id, share_token FROM conversations WHERE id = ? AND user_id = ?').get(req.params.id, req.session.userId);
+  if (!c) return res.status(404).json({ error: 'notfound' });
+  if (req.body.disable) { db.prepare('UPDATE conversations SET share_token = NULL WHERE id = ?').run(c.id); return res.json({ ok: true, url: null }); }
+  const token = c.share_token || crypto.randomBytes(10).toString('hex');
+  db.prepare('UPDATE conversations SET share_token = ? WHERE id = ?').run(token, c.id);
+  res.json({ ok: true, url: baseUrl(req) + '/s/' + token });
+});
+app.get('/s/:token', (req, res) => {
+  const c = db.prepare('SELECT * FROM conversations WHERE share_token = ?').get(req.params.token);
+  if (!c) return res.status(404).render('404');
+  const msgs = db.prepare('SELECT role, content FROM messages WHERE conversation_id = ? ORDER BY id').all(c.id);
+  res.render('share', { title: c.title || 'Conversation', messages: msgs, siteName: SITE_NAME });
+});
+
 // --- Rubrique Correction (page séparée, n'apparaît PAS dans le chat) ---
 app.get('/correction', requireAuth, (req, res) => {
   const u = res.locals.me;
   ensurePeriod(u);
-  res.render('correction', { used: u.msg_used, limit: limitFor(u.plan) });
+  res.render('correction', { used: u.msg_used, limit: limitFor(u.plan, u.bonus_msgs) });
 });
 app.post('/api/correct', requireAuth, async (req, res) => {
   const u = res.locals.me;
   ensurePeriod(u);
-  const limit = limitFor(u.plan);
+  const limit = limitFor(u.plan, u.bonus_msgs);
   if (u.msg_used >= limit) return res.status(402).json({ message: "Tu as atteint ta limite de messages ce mois-ci." });
   const text = (req.body.text || '').toString().slice(0, 8000).trim();
   if (!text) return res.status(400).json({ message: "Écris un texte à corriger." });
@@ -328,10 +355,31 @@ app.post('/api/correct', requireAuth, async (req, res) => {
   } catch (e) { console.error('CORRECT', e); res.status(500).json({ message: "Erreur de connexion à l'IA." }); }
 });
 
+function computeUserStats(userId) {
+  const g = (sql, ...a) => { try { return db.prepare(sql).get(...a).n; } catch (e) { return 0; } };
+  const msgsSent = g('SELECT COUNT(*) n FROM messages WHERE user_id = ? AND role = ?', userId, 'user');
+  const referrals = g('SELECT COUNT(*) n FROM users WHERE referred_by = ?', userId);
+  const rows = db.prepare("SELECT strftime('%w', created_at/1000, 'unixepoch') d, COUNT(*) n FROM messages WHERE user_id = ? AND role='user' GROUP BY d").all(userId);
+  const days = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
+  let topDay = null, topN = 0;
+  rows.forEach(r => { if (r.n > topN) { topN = r.n; topDay = days[parseInt(r.d, 10)]; } });
+  return { msgsSent, referrals, topDay };
+}
+
 app.get('/account', requireAuth, (req, res) => {
   const u = res.locals.me;
   ensurePeriod(u);
-  res.render('account', { used: u.msg_used, limit: limitFor(u.plan), plan: u.plan, pw: req.query.pw || null });
+  const stats = computeUserStats(u.id);
+  res.render('account', { u, used: u.msg_used, limit: limitFor(u.plan, u.bonus_msgs), plan: u.plan, pw: req.query.pw || null, stats, siteOrigin: baseUrl(req) });
+});
+
+app.post('/account/model', requireAuth, (req, res) => {
+  const u = res.locals.me;
+  if (u.plan === 'pro') {
+    const pref = req.body.model_pref === 'fast' ? 'fast' : 'smart';
+    db.prepare('UPDATE users SET model_pref = ? WHERE id = ?').run(pref, u.id);
+  }
+  res.redirect('/account');
 });
 
 app.post('/account/password', requireAuth, async (req, res) => {
@@ -888,6 +936,38 @@ async function buildPptx(spec) {
 }
 
 // Synthèse vocale de bonne qualité (voix IA OpenAI) pour le mode vocal et la lecture à voix haute
+// Retours 👍👎 sur une réponse (visibles côté admin, pour savoir ce qui plaît ou pas)
+// Export d'une conversation en PDF (en plus de l'export markdown déjà existant côté client)
+app.post('/api/export-pdf', requireAuth, (req, res) => {
+  try {
+    const PDFDocument = require('pdfkit');
+    const title = (req.body.title || 'Conversation').toString().slice(0, 120);
+    const turns = Array.isArray(req.body.turns) ? req.body.turns : [];
+    const doc = new PDFDocument({ margin: 50 });
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', 'attachment; filename="conversation.pdf"');
+    doc.pipe(res);
+    doc.fontSize(18).fillColor('#10131A').text(title);
+    doc.moveDown();
+    turns.forEach(t => {
+      doc.fontSize(9).fillColor('#8A909C').text(t.role === 'user' ? 'MOI' : 'IA');
+      doc.fontSize(12).fillColor('#10131A').text(String(t.text || '').slice(0, 6000));
+      doc.moveDown();
+    });
+    doc.end();
+  } catch (e) { console.error('export-pdf error', e); res.status(500).end('Erreur PDF'); }
+});
+
+app.post('/api/feedback', requireAuth, (req, res) => {
+  const u = res.locals.me;
+  const verdict = req.body.verdict === 'up' ? 'up' : 'down';
+  const excerpt = (req.body.excerpt || '').toString().slice(0, 300);
+  const convId = parseInt(req.body.conversation_id, 10) || null;
+  db.prepare('INSERT INTO feedback (user_id, conversation_id, verdict, excerpt, created_at) VALUES (?,?,?,?,?)')
+    .run(u.id, convId, verdict, excerpt, Date.now());
+  res.json({ ok: true });
+});
+
 app.post('/api/tts', requireAuth, async (req, res) => {
   try {
     if (!OPENAI_API_KEY) return res.status(501).json({ error: 'no_key' });
@@ -911,7 +991,7 @@ app.post('/api/tts', requireAuth, async (req, res) => {
 app.post('/api/chat', requireAuth, async (req, res) => {
   const u = res.locals.me;
   ensurePeriod(u);
-  const limit = limitFor(u.plan);
+  const limit = limitFor(u.plan, u.bonus_msgs);
   if (u.msg_used >= limit) {
     return res.status(402).json({ error: 'quota', message: "Tu as atteint ta limite de messages ce mois-ci." });
   }
@@ -1098,7 +1178,7 @@ app.post('/api/chat', requireAuth, async (req, res) => {
     const r = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: { 'x-api-key': ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-      body: JSON.stringify({ model: MODEL, max_tokens: 8192, system: systemToUse, messages, tools })
+      body: JSON.stringify({ model: pickModel(u), max_tokens: 8192, system: systemToUse, messages, tools })
     });
     if (!r.ok) {
       const errTxt = await r.text();

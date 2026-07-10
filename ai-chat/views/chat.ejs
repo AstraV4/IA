@@ -29,10 +29,13 @@ if ('serviceWorker' in navigator) { window.addEventListener('load', () => naviga
     <div class="lbl">Récents</div>
     <div class="conv-list" id="conv-list">
       <% conversations.forEach(function(c){ %>
-        <% var prev = (c.lastMsg || '').toString().replace(/[#*`_>\[\]!]/g,'').replace(/\s+/g,' ').trim().slice(0,110); %>
-        <a class="conv <%= c.id===currentId?'active':'' %> <%= c.pinned?'pinned':'' %>" href="/chat?c=<%= c.id %>" data-id="<%= c.id %>" data-preview="<%= prev %>">
+        <% var prev = (c.lastMsg || '').toString().replace(/[#*`_>\[\]!]/g,'').replace(/\s+/g,' ').trim().slice(0,70); %>
+        <a class="conv <%= c.id===currentId?'active':'' %> <%= c.pinned?'pinned':'' %>" href="/chat?c=<%= c.id %>" data-id="<%= c.id %>">
           <span class="conv-swipe-bg" aria-hidden="true">🗑 Supprimer</span>
-          <span class="conv-t"><%= c.title || 'Conversation' %></span>
+          <span class="conv-main">
+            <span class="conv-t"><%= c.title || 'Conversation' %></span>
+            <% if (prev) { %><span class="conv-prev"><%= prev %></span><% } %>
+          </span>
           <span class="conv-actions">
             <button class="conv-pin <%= c.pinned?'on':'' %>" type="button" data-pin="<%= c.id %>" title="<%= c.pinned?'Désépingler':'Épingler' %>">📌</button>
             <button class="conv-edit" type="button" data-edit="<%= c.id %>" title="Renommer">✏️</button>

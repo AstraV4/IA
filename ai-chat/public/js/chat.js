@@ -199,7 +199,7 @@ convList.addEventListener('touchmove', (e) => {
   if (dx < 0) {
     swipeState.dx = Math.max(dx, -90);
     swipeState.moved = Math.abs(dx) > 8;
-    const content = swipeState.row.querySelector('.conv-t'), acts = swipeState.row.querySelector('.conv-actions');
+    const content = swipeState.row.querySelector('.conv-main'), acts = swipeState.row.querySelector('.conv-actions');
     if (content) content.style.transform = `translateX(${swipeState.dx}px)`;
     if (acts) acts.style.transform = `translateX(${swipeState.dx}px)`;
     swipeState.row.classList.toggle('swipe-open', swipeState.dx < -60);
@@ -208,7 +208,7 @@ convList.addEventListener('touchmove', (e) => {
 convList.addEventListener('touchend', () => {
   if (!swipeState) return;
   const { row, dx, moved } = swipeState;
-  const content = row.querySelector('.conv-t'), acts = row.querySelector('.conv-actions');
+  const content = row.querySelector('.conv-main'), acts = row.querySelector('.conv-actions');
   row.classList.remove('swiping');
   if (dx < -60) {
     // Swipe suffisant -> déclenche la même suppression (avec confirmation) que le bouton 🗑
@@ -219,32 +219,6 @@ convList.addEventListener('touchend', () => {
   if (moved) { const blocker = (ev) => { ev.preventDefault(); row.removeEventListener('click', blocker); }; row.addEventListener('click', blocker, { once: true }); }
   swipeState = null;
 });
-
-/* ---------- Aperçu au survol d'une conversation (ordinateur uniquement) ---------- */
-if (window.matchMedia && window.matchMedia('(pointer: fine)').matches) {
-  const tooltip = document.createElement('div'); tooltip.className = 'conv-tooltip'; document.body.appendChild(tooltip);
-  let tipTimer = null;
-  convList.addEventListener('mouseenter', (e) => {
-    const row = e.target.closest ? e.target.closest('.conv') : null;
-  }, true);
-  convList.addEventListener('mouseover', (e) => {
-    const row = e.target.closest('.conv'); if (!row) return;
-    const preview = row.getAttribute('data-preview');
-    if (!preview) return;
-    clearTimeout(tipTimer);
-    tipTimer = setTimeout(() => {
-      tooltip.textContent = preview;
-      const r = row.getBoundingClientRect();
-      tooltip.style.left = (r.right + 10) + 'px';
-      tooltip.style.top = r.top + 'px';
-      tooltip.classList.add('show');
-    }, 350);
-  });
-  convList.addEventListener('mouseout', (e) => {
-    if (!e.target.closest || !e.target.closest('.conv')) return;
-    clearTimeout(tipTimer); tooltip.classList.remove('show');
-  });
-}
 
 /* ---------- Renommer / Supprimer ---------- */
 convList.addEventListener('click', async (e) => {
@@ -488,7 +462,7 @@ function addTyping(){
 function addConvToSidebar(id,title){
   document.querySelectorAll('.conv.active').forEach(c=>c.classList.remove('active'));
   const a=document.createElement('a'); a.className='conv active'; a.href='/chat?c='+id; a.setAttribute('data-id',id);
-  a.innerHTML='<span class="conv-t"></span><span class="conv-actions"><button class="conv-pin" type="button" data-pin="'+id+'" title="Épingler">📌</button><button class="conv-edit" type="button" data-edit="'+id+'" title="Renommer">✏️</button><button class="conv-del" type="button" data-del="'+id+'" title="Supprimer">🗑</button></span>';
+  a.innerHTML='<span class="conv-swipe-bg" aria-hidden="true">🗑 Supprimer</span><span class="conv-main"><span class="conv-t"></span></span><span class="conv-actions"><button class="conv-pin" type="button" data-pin="'+id+'" title="Épingler">📌</button><button class="conv-edit" type="button" data-edit="'+id+'" title="Renommer">✏️</button><button class="conv-del" type="button" data-del="'+id+'" title="Supprimer">🗑</button></span>';
   a.querySelector('.conv-t').textContent=title||'Conversation';
   convList.prepend(a);
 }

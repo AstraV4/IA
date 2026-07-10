@@ -95,12 +95,15 @@ input:focus{outline:none;border-color:var(--cobalt);box-shadow:0 0 0 3px var(--c
 .new .plus{font-size:1.05rem;line-height:1}
 .lbl{color:var(--ink-3);font-size:.68rem;font-weight:500;letter-spacing:.08em;text-transform:uppercase;padding:16px 10px 6px;font-family:'JetBrains Mono',monospace}
 .conv-list{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:1px}
-.conv{position:relative;display:flex;align-items:center;gap:6px;padding:9px 12px;border-radius:9px;color:var(--ink-2);text-decoration:none;font-size:.87rem;transition:background .22s var(--ease),color .22s,padding-left .28s var(--spring)}
+.conv{position:relative;display:flex;align-items:center;gap:6px;padding:8px 12px;border-radius:9px;color:var(--ink-2);text-decoration:none;font-size:.87rem;transition:background .22s var(--ease),color .22s,padding-left .28s var(--spring)}
 .conv::before{content:"";position:absolute;left:3px;top:50%;transform:translateY(-50%);width:2px;height:0;background:var(--cobalt);border-radius:2px;transition:height .3s var(--spring)}
 .conv:hover{background:var(--sunk);color:var(--ink);padding-left:16px}
 .conv.active{background:var(--cobalt-soft);color:var(--ink);font-weight:500;padding-left:16px;box-shadow:none}
 .conv.active::before{height:14px}
-.conv-t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+.conv-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
+.conv-t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.conv-prev{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.76rem;color:var(--ink-3);font-weight:400}
+.conv.active .conv-prev{color:var(--cobalt);opacity:.75}
 .conv-actions{display:flex;gap:1px;flex:none}
 .conv-edit,.conv-del{opacity:0;background:none;border:none;cursor:pointer;font-size:.78rem;padding:2px}
 .conv:hover .conv-edit,.conv:hover .conv-del{opacity:.6}
@@ -366,8 +369,6 @@ html{-webkit-text-size-adjust:100%}
 .conv:not(.active):not(:hover) .conv-t,.conv:not(.active):not(:hover) .conv-actions{background:transparent}
 
 /* Aperçu au survol d'une conversation (desktop) */
-.conv-tooltip{position:fixed;z-index:90;max-width:260px;background:var(--ink);color:var(--paper);font-size:.8rem;line-height:1.4;padding:9px 12px;border-radius:9px;box-shadow:var(--sh-3);opacity:0;transform:translateY(4px);transition:opacity .15s,transform .15s;pointer-events:none}
-.conv-tooltip.show{opacity:1;transform:none}
 
 /* Barre de détection d'intention (collage d'un long texte) */
 .intent-bar{max-width:740px;margin:0 auto 8px;background:var(--cobalt-soft);border:1px solid var(--cobalt);border-radius:var(--r);padding:9px 12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:.83rem;color:var(--ink)}

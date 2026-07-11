@@ -554,6 +554,58 @@ async function fillPptxTemplateByMap(buffer, mappings) {
   return { buffer: outBuf, replacedCount, totalCount };
 }
 
+// --- Équivalent pour les fichiers Word (.docx) : même principe que pour PowerPoint ---
+function docxParagraphs(xml) { return xml.match(/<w:p\b[^>]*>[\s\S]*?<\/w:p>/g) || []; }
+function docxParagraphText(pXml) { return [...pXml.matchAll(/<w:t[^>]*>([^<]*)<\/w:t>/g)].map(m => xmlDecode(m[1])).join('').trim(); }
+
+async function extractDocxParagraphs(buffer) {
+  const JSZip = require('jszip');
+  const zip = await JSZip.loadAsync(buffer);
+  const file = zip.files['word/document.xml'];
+  if (!file) throw new Error('invalid_docx');
+  const xml = await file.async('string');
+  const items = [];
+  for (const p of docxParagraphs(xml)) {
+    const t = docxParagraphText(p);
+    if (t) items.push({ text: t });
+  }
+  return items;
+}
+
+async function fillDocxTemplateByMap(buffer, mappings) {
+  const JSZip = require('jszip');
+  const norm = s => String(s).replace(/\s+/g, ' ').trim();
+  const map = new Map();
+  (Array.isArray(mappings) ? mappings : []).forEach(m => {
+    if (m && typeof m.original === 'string' && typeof m.replacement === 'string') {
+      map.set(norm(m.original), m.replacement);
+    }
+  });
+  const zip = await JSZip.loadAsync(buffer);
+  const path = 'word/document.xml';
+  const file = zip.files[path];
+  if (!file) throw new Error('invalid_docx');
+  let xml = await file.async('string');
+  let replacedCount = 0, totalCount = 0;
+  xml = xml.replace(/<w:p\b[^>]*>[\s\S]*?<\/w:p>/g, (pBlock) => {
+    const original = docxParagraphText(pBlock);
+    if (!original) return pBlock;
+    totalCount++;
+    const key = norm(original);
+    if (!map.has(key)) return pBlock;
+    const newText = map.get(key);
+    replacedCount++;
+    let usedFirst = false;
+    return pBlock.replace(/<w:t([^>]*)>([^<]*)<\/w:t>/g, (m, attrs) => {
+      if (!usedFirst) { usedFirst = true; return '<w:t' + attrs + ' xml:space="preserve">' + xmlEncode(newText) + '</w:t>'; }
+      return '<w:t' + attrs + '></w:t>';
+    });
+  });
+  zip.file(path, xml);
+  const outBuf = await zip.generateAsync({ type: 'nodebuffer' });
+  return { buffer: outBuf, replacedCount, totalCount };
+}
+
 // Génère une image via l'API OpenAI (gpt-image-2). Si une image de référence est fournie
 // (ex: un logo envoyé par l'utilisateur), on utilise l'endpoint "edits" pour l'intégrer au résultat.
 async function generateImageOpenAI({ prompt, quality, size, refData, refMediaType }) {
@@ -1012,6 +1064,7 @@ app.post('/api/chat', requireAuth, async (req, res) => {
   else if (file && file.kind === 'pdf' && file.data) fileKind = 'pdf';
   else if (file && file.kind === 'text' && typeof file.text === 'string') fileKind = 'text';
   else if (file && file.kind === 'pptx' && file.data) fileKind = 'pptx';
+  else if (file && file.kind === 'docx' && file.data) fileKind = 'docx';
   if (!text && !fileKind) return res.status(400).json({ error: 'empty' });
   if (!ANTHROPIC_API_KEY) return res.status(500).json({ error: 'config', message: "L'IA n'est pas configurée (clé API manquante)." });
 
@@ -1032,6 +1085,8 @@ app.post('/api/chat', requireAuth, async (req, res) => {
   let pptxBuffer = null; // gardé en mémoire si un .pptx est joint, pour un éventuel remplissage de modèle fidèle
   let pptxParagraphList = null;
   let pptxUniqueTexts = null;
+  let docxBuffer = null; // idem pour un .docx joint
+  let docxUniqueTexts = null;
   let refImage = null; // image jointe (ex: logo) réutilisable comme référence pour generate_image
   if (fileKind === 'image') {
     blocks.push({ type: 'image', source: { type: 'base64', media_type: file.media_type, data: file.data } });
@@ -1059,6 +1114,22 @@ app.post('/api/chat', requireAuth, async (req, res) => {
         (text ? '\n\n' + text : '');
     } catch (e) {
       textForAI = 'Le fichier PowerPoint joint "' + nm + '" n\'a pas pu être lu (format inattendu).' + (text ? '\n\n' + text : '');
+    }
+  } else if (fileKind === 'docx') {
+    const nm = (file.name || 'document.docx').slice(0, 120);
+    try {
+      docxBuffer = Buffer.from(file.data, 'base64');
+      const paras = await extractDocxParagraphs(docxBuffer);
+      const seenTexts = new Set();
+      const uniqueTexts = [];
+      for (const p of paras) { if (!seenTexts.has(p.text)) { seenTexts.add(p.text); uniqueTexts.push(p.text); } }
+      docxUniqueTexts = uniqueTexts;
+      const uniqueListStr = uniqueTexts.map((t, i) => i + ': ' + t).join('\n');
+      textForAI = 'Contenu du document Word joint "' + nm + '" (' + uniqueTexts.length + ' paragraphes uniques) :\n\n' +
+        '--- À UTILISER PAR DÉFAUT via l\'outil fill_docx_template avec un tableau "mappings" pour remplir ce modèle et le renvoyer en .docx modifiable (par ex. lettre de motivation, CV, formulaire à compléter), sauf si l\'utilisateur veut juste discuter du contenu ---\n' + uniqueListStr.slice(0, 60000) +
+        (text ? '\n\n' + text : '');
+    } catch (e) {
+      textForAI = 'Le document Word joint "' + nm + '" n\'a pas pu être lu (format inattendu).' + (text ? '\n\n' + text : '');
     }
   }
   let userContent;
@@ -1176,6 +1247,30 @@ app.post('/api/chat', requireAuth, async (req, res) => {
       }
     });
   }
+  if (fileKind === 'docx' && docxUniqueTexts && docxUniqueTexts.length) {
+    tools.push({
+      name: 'fill_docx_template',
+      description: "UTILISE CET OUTIL PAR DÉFAUT dès qu'un fichier Word (.docx) est joint au message et que l'utilisateur veut le remplir, l'adapter, le compléter (ex: lettre de motivation, CV, formulaire, contrat type) — même s'il ne précise pas explicitement 'garde la mise en page'. Le résultat garde EXACTEMENT la mise en forme, les styles et la structure du document d'origine, en ne changeant que le texte, et est renvoyé en .docx modifiable dans Word. Fournis un tableau 'mappings' avec une entrée { original, replacement } pour CHAQUE texte de la liste des " + docxUniqueTexts.length + " paragraphes uniques fournie dans le message (même si le texte doit rester identique : mets alors replacement = original). Le champ 'original' doit être une copie EXACTE (caractère pour caractère) d'un texte de la liste fournie, sinon le remplacement ne sera pas appliqué.",
+      input_schema: {
+        type: 'object',
+        properties: {
+          mappings: {
+            type: 'array',
+            description: 'Une entrée par texte unique de la liste fournie (' + docxUniqueTexts.length + ' attendues).',
+            items: {
+              type: 'object',
+              properties: {
+                original: { type: 'string', description: 'Texte original EXACT, copié depuis la liste fournie dans le message' },
+                replacement: { type: 'string', description: 'Nouveau texte (identique à original si rien ne doit changer)' }
+              },
+              required: ['original', 'replacement']
+            }
+          }
+        },
+        required: ['mappings']
+      }
+    });
+  }
 
   let systemToUse = SYSTEM_PROMPT;
   if (mode === 'correct') {
@@ -1202,6 +1297,7 @@ app.post('/api/chat', requireAuth, async (req, res) => {
     else if (fileKind === 'pdf') marker = '📄 [' + (file.name || 'PDF') + ']';
     else if (fileKind === 'text') marker = '📎 [' + (file.name || 'fichier') + ']';
     else if (fileKind === 'pptx') marker = '📊 [' + (file.name || 'PowerPoint') + ']';
+    else if (fileKind === 'docx') marker = '📘 [' + (file.name || 'Word') + ']';
     const storedUser = marker ? (text ? text + '\n' + marker : marker) : text;
 
     // L'IA a-t-elle décidé de créer une présentation (nouveau style) ?
@@ -1236,6 +1332,27 @@ app.post('/api/chat', requireAuth, async (req, res) => {
       db.prepare('UPDATE users SET msg_used = msg_used + 1 WHERE id = ?').run(u.id);
       db.prepare('UPDATE conversations SET updated_at = ? WHERE id = ?').run(now, convId);
       return res.json({ reply, download: { url: '/download/' + fileName, title: presTitle }, used: u.msg_used + 1, limit, conversation_id: convId, title: conv.title });
+    }
+
+    // L'IA a-t-elle décidé de remplir le modèle Word joint tel quel ?
+    const fillDocxUse = (data.content || []).find(b => b.type === 'tool_use' && b.name === 'fill_docx_template');
+    if (fillDocxUse && docxBuffer) {
+      const mappings = (fillDocxUse.input && Array.isArray(fillDocxUse.input.mappings)) ? fillDocxUse.input.mappings : [];
+      const { buffer: outBuf, replacedCount, totalCount } = await fillDocxTemplateByMap(docxBuffer, mappings);
+      const token = crypto.randomBytes(6).toString('hex');
+      const fileName = 'document-' + token + '.docx';
+      fs.writeFileSync(path.join(GEN_DIR, fileName), outBuf);
+      const docTitle = (file.name || 'Document').replace(/\.docx$/i, '');
+      const pre = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n').trim();
+      let reply = (pre ? pre + '\n\n' : '') + 'Voilà ✨ J\'ai rempli ton document en gardant exactement sa mise en forme.\n\n[📘 Télécharger le Word](/download/' + fileName + ')';
+      if (totalCount > 0 && replacedCount < totalCount * 0.6) {
+        reply += '\n\n⚠️ Seulement ' + replacedCount + ' texte(s) sur ' + totalCount + ' ont pu être remplacés — réessaie ou reformule ta demande si le résultat ne te convient pas.';
+      }
+      db.prepare('INSERT INTO messages (user_id, conversation_id, role, content, created_at) VALUES (?,?,?,?,?)').run(u.id, convId, 'user', storedUser, now);
+      db.prepare('INSERT INTO messages (user_id, conversation_id, role, content, created_at) VALUES (?,?,?,?,?)').run(u.id, convId, 'assistant', reply, now + 1);
+      db.prepare('UPDATE users SET msg_used = msg_used + 1 WHERE id = ?').run(u.id);
+      db.prepare('UPDATE conversations SET updated_at = ? WHERE id = ?').run(now, convId);
+      return res.json({ reply, download: { url: '/download/' + fileName, title: docTitle }, used: u.msg_used + 1, limit, conversation_id: convId, title: conv.title });
     }
 
     // L'IA a-t-elle décidé de générer une image ?

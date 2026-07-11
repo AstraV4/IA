@@ -606,6 +606,46 @@ async function fillDocxTemplateByMap(buffer, mappings) {
   return { buffer: outBuf, replacedCount, totalCount };
 }
 
+// Découpe un texte simple avec **gras** en morceaux de texte pour le Word généré
+function docxInlineRuns(text, extraOpts) {
+  const DocxLib = require('docx');
+  const parts = String(text).split(/\*\*([^*]+)\*\*/g);
+  return parts.map((part, i) => new DocxLib.TextRun(Object.assign({ text: part, bold: i % 2 === 1 }, extraOpts || {}))).filter(r => r);
+}
+
+// Construit un vrai fichier Word (.docx) depuis zéro à partir d'une spec structurée (titre, sections)
+async function buildDocx(spec) {
+  const DocxLib = require('docx');
+  const { Document, Packer, Paragraph, HeadingLevel, Table, TableRow, TableCell, WidthType } = DocxLib;
+  const children = [];
+  if (spec.title) children.push(new Paragraph({ text: String(spec.title), heading: HeadingLevel.TITLE }));
+  const sections = Array.isArray(spec.sections) ? spec.sections : [];
+  sections.forEach(s => {
+    const type = s && s.type;
+    if (type === 'heading1') children.push(new Paragraph({ children: docxInlineRuns(s.text || ''), heading: HeadingLevel.HEADING_1 }));
+    else if (type === 'heading2') children.push(new Paragraph({ children: docxInlineRuns(s.text || ''), heading: HeadingLevel.HEADING_2 }));
+    else if (type === 'paragraph') children.push(new Paragraph({ children: docxInlineRuns(s.text || ''), spacing: { after: 160 } }));
+    else if (type === 'bullets' && Array.isArray(s.items)) s.items.forEach(it => children.push(new Paragraph({ children: docxInlineRuns(it), bullet: { level: 0 } })));
+    else if (type === 'numbered' && Array.isArray(s.items)) s.items.forEach((it, i) => children.push(new Paragraph({ children: docxInlineRuns((i + 1) + '. ' + it) })));
+    else if (type === 'table' && Array.isArray(s.rows)) {
+      const allRows = s.headers && s.headers.length ? [s.headers, ...s.rows] : s.rows;
+      children.push(new Table({
+        width: { size: 100, type: WidthType.PERCENTAGE },
+        rows: allRows.map((r, ri) => new TableRow({
+          children: r.map(cell => new TableCell({ children: [new Paragraph({ children: docxInlineRuns(String(cell), ri === 0 && s.headers ? { bold: true } : {}) })] }))
+        }))
+      }));
+      children.push(new Paragraph({ text: '' }));
+    }
+  });
+  const doc = new Document({ sections: [{ children }] });
+  const buf = await Packer.toBuffer(doc);
+  const token = crypto.randomBytes(6).toString('hex');
+  const fileName = 'document-' + token + '.docx';
+  fs.writeFileSync(path.join(GEN_DIR, fileName), buf);
+  return { url: '/download/' + fileName, title: spec.title || 'Document' };
+}
+
 // Génère une image via l'API OpenAI (gpt-image-2). Si une image de référence est fournie
 // (ex: un logo envoyé par l'utilisateur), on utilise l'endpoint "edits" pour l'intégrer au résultat.
 async function generateImageOpenAI({ prompt, quality, size, refData, refMediaType }) {
@@ -1190,6 +1230,30 @@ app.post('/api/chat', requireAuth, async (req, res) => {
       },
       required: ['title', 'slides']
     }
+  }, {
+    name: 'create_document',
+    description: "Génère un vrai fichier Word (.docx) DEPUIS ZÉRO (pas de fichier joint nécessaire) : lettre, CV, rapport, essai, article, compte-rendu, réponse détaillée à mettre en forme proprement, etc. Utilise cet outil quand l'utilisateur veut un document Word/texte à télécharger et modifier, ou quand il demande explicitement \"un fichier Word\"/\"un .docx\". N'utilise PAS cet outil si un fichier Word a été joint par l'utilisateur pour être rempli : utilise fill_docx_template dans ce cas (il préserve la mise en forme d'origine). Structure le contenu en sections variées : heading1/heading2 (titres), paragraph (texte, supporte **gras**), bullets (liste à puces), numbered (liste numérotée), table (tableau avec headers optionnels et rows). Découpe toujours un contenu un peu long en plusieurs sections plutôt qu'un seul gros paragraphe.",
+    input_schema: {
+      type: 'object',
+      properties: {
+        title: { type: 'string', description: 'Titre du document' },
+        sections: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              type: { type: 'string', enum: ['heading1', 'heading2', 'paragraph', 'bullets', 'numbered', 'table'] },
+              text: { type: 'string', description: 'Texte, pour heading1/heading2/paragraph (peut contenir **gras**)' },
+              items: { type: 'array', items: { type: 'string' }, description: 'Lignes, pour bullets/numbered' },
+              headers: { type: 'array', items: { type: 'string' }, description: 'En-têtes de colonnes, pour table (optionnel)' },
+              rows: { type: 'array', items: { type: 'array', items: { type: 'string' } }, description: 'Lignes du tableau, pour table' }
+            },
+            required: ['type']
+          }
+        }
+      },
+      required: ['title', 'sections']
+    }
   }];
 
   if (OPENAI_API_KEY) {
@@ -1311,6 +1375,19 @@ app.post('/api/chat', requireAuth, async (req, res) => {
       db.prepare('UPDATE users SET msg_used = msg_used + 1 WHERE id = ?').run(u.id);
       db.prepare('UPDATE conversations SET updated_at = ? WHERE id = ?').run(now, convId);
       return res.json({ reply, download: { url: pres.url, title: pres.title }, used: u.msg_used + 1, limit, conversation_id: convId, title: conv.title });
+    }
+
+    // L'IA a-t-elle décidé de créer un document Word depuis zéro ?
+    const docToolUse = (data.content || []).find(b => b.type === 'tool_use' && b.name === 'create_document');
+    if (docToolUse) {
+      const docRes = await buildDocx(docToolUse.input || {});
+      const pre = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n').trim();
+      const reply = (pre ? pre + '\n\n' : '') + 'Voilà ✨ Ton document « ' + docRes.title + ' » est prêt !\n\n[📘 Télécharger le Word](' + docRes.url + ')';
+      db.prepare('INSERT INTO messages (user_id, conversation_id, role, content, created_at) VALUES (?,?,?,?,?)').run(u.id, convId, 'user', storedUser, now);
+      db.prepare('INSERT INTO messages (user_id, conversation_id, role, content, created_at) VALUES (?,?,?,?,?)').run(u.id, convId, 'assistant', reply, now + 1);
+      db.prepare('UPDATE users SET msg_used = msg_used + 1 WHERE id = ?').run(u.id);
+      db.prepare('UPDATE conversations SET updated_at = ? WHERE id = ?').run(now, convId);
+      return res.json({ reply, download: { url: docRes.url, title: docRes.title }, used: u.msg_used + 1, limit, conversation_id: convId, title: conv.title });
     }
 
     // L'IA a-t-elle décidé de remplir le modèle pptx joint tel quel (même design) ?
